@@ -110,7 +110,7 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowBackendVersion"
                                       Tag="version backend service api"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -122,6 +122,51 @@
                                                Text="{Binding BackendVersion}"
                                                Foreground="{DynamicResource TextPrimary}"
                                                VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowWslVersion"
+                                      Tag="version wsl system"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="WSL version"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding WslVersion}"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowUsbIpdVersion"
+                                      Tag="version usbipd system"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="usbipd version"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding UsbIpdVersion}"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowCopyVersionInfo"
+                                      Tag="version copy diagnostics support"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Copy all version info"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Content="Copy"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="CopyVersionInfo_OnClick"/>
                                 </Grid>
                             </StackPanel>
                         </Border>

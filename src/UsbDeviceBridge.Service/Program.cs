@@ -21,6 +21,8 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddGrpc();
 builder.Services.AddSingleton<UsbIpdClient>();
 builder.Services.AddSingleton<WslInterop>();
+builder.Services.AddSingleton<ICommandRunner, CommandRunner>();
+builder.Services.AddSingleton<VersionInfoProvider>();
 builder.Services.AddSingleton<RememberedDeviceStore>();
 builder.Services.AddSingleton<AutoAttachActivityTracker>();
 builder.Services.AddSingleton<AutoAttachAttemptCancellationRegistry>();

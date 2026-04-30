@@ -14,6 +14,7 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
     private readonly RememberedDeviceStore rememberedDeviceStore;
     private readonly AutoAttachActivityTracker autoAttachActivityTracker;
     private readonly ServiceClientConnectionTracker connectionTracker;
+    private readonly VersionInfoProvider versionInfoProvider;
     private readonly AttachConfirmationPoller _confirmationPoller;
 
     public DeviceServiceImpl(
@@ -22,7 +23,8 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
         WslInterop wslInterop,
         RememberedDeviceStore rememberedDeviceStore,
         AutoAttachActivityTracker autoAttachActivityTracker,
-        ServiceClientConnectionTracker connectionTracker
+        ServiceClientConnectionTracker connectionTracker,
+        VersionInfoProvider versionInfoProvider
     )
     {
         this.logger = logger;
@@ -31,6 +33,7 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
         this.rememberedDeviceStore = rememberedDeviceStore;
         this.autoAttachActivityTracker = autoAttachActivityTracker;
         this.connectionTracker = connectionTracker;
+        this.versionInfoProvider = versionInfoProvider;
         _confirmationPoller = new AttachConfirmationPoller(usbIpdClient, logger);
     }
 
@@ -475,5 +478,34 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
             response.Distros.Add(distro);
 
         return response;
+    }
+
+    public override async Task<Usbdevicebridge.V1.VersionInfo> GetVersionInfo(
+        GetVersionInfoRequest request,
+        ServerCallContext context
+    )
+    {
+        try
+        {
+            var snapshot = await versionInfoProvider.QueryAsync(context.CancellationToken);
+            return new Usbdevicebridge.V1.VersionInfo
+            {
+                FrontendVersion = "N/A",
+                ServiceVersion = snapshot.ServiceVersion,
+                WslVersion = snapshot.WslVersion,
+                UsbipdVersion = snapshot.UsbIpdVersion,
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "GetVersionInfo failed.");
+            return new Usbdevicebridge.V1.VersionInfo
+            {
+                FrontendVersion = "N/A",
+                ServiceVersion = "Unknown",
+                WslVersion = "Unknown",
+                UsbipdVersion = "Unknown",
+            };
+        }
     }
 }

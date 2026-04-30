@@ -20,10 +20,11 @@ public partial class MainWindow
     private readonly Dictionary<string, Button> _settingsFilterButtons = [];
     private string? _activeSettingsFilterKey;
 
-    private void OpenSettingsButton_OnClick(object sender, RoutedEventArgs e)
+    private async void OpenSettingsButton_OnClick(object sender, RoutedEventArgs e)
     {
         SettingsOverlay.Visibility = Visibility.Visible;
         SettingsOverlay.SearchBox.Focus();
+        await RefreshVersionInfoAsync();
     }
 
     private void CloseSettingsButton_OnClick(object sender, RoutedEventArgs e)

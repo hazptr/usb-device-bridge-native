@@ -8,6 +8,7 @@ service DeviceService {
   rpc AttachDevice(AttachDeviceRequest) returns (AttachDeviceResponse);
   rpc DetachDevice(DetachDeviceRequest) returns (DetachDeviceResponse);
   rpc QueryWslDistros(QueryWslDistrosRequest) returns (QueryWslDistrosResponse);
+  rpc GetVersionInfo(GetVersionInfoRequest) returns (VersionInfo);
 }
 
 message GetDevicesRequest {}
@@ -50,6 +51,15 @@ message QueryWslDistrosRequest {}
 
 message QueryWslDistrosResponse {
   repeated string distros = 1;
+}
+
+message GetVersionInfoRequest {}
+
+message VersionInfo {
+  string frontend_version = 1;
+  string service_version = 2;
+  string wsl_version = 3;
+  string usbipd_version = 4;
 }
 
 message Device {

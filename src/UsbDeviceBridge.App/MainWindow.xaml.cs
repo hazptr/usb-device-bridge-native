@@ -9,6 +9,7 @@ using UsbDeviceBridge.App.Settings;
 using UsbDeviceBridge.App.Shell;
 using UsbDeviceBridge.App.Theming;
 using UsbDeviceBridge.App.ViewModels;
+using Usbdevicebridge.V1;
 
 namespace UsbDeviceBridge.App;
 
@@ -23,6 +24,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly WindowsStartupRegistryService _startupRegistry;
     private readonly bool _isFirstRun;
     private bool _exitingFromTray;
+    private bool _isRefreshingVersionInfo;
+    private string _backendVersion = "Loading...";
+    private string _wslVersion = "Loading...";
+    private string _usbIpdVersion = "Loading...";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -39,8 +44,50 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             .GetName().Version?.ToString()
         ?? "Unknown";
 
-    public string BackendVersion { get; } =
-        Environment.GetEnvironmentVariable("USB_DEVICE_BRIDGE_BACKEND_VERSION") ?? "Unknown";
+    public string BackendVersion
+    {
+        get => _backendVersion;
+        private set
+        {
+            if (string.Equals(_backendVersion, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _backendVersion = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BackendVersion)));
+        }
+    }
+
+    public string WslVersion
+    {
+        get => _wslVersion;
+        private set
+        {
+            if (string.Equals(_wslVersion, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _wslVersion = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(WslVersion)));
+        }
+    }
+
+    public string UsbIpdVersion
+    {
+        get => _usbIpdVersion;
+        private set
+        {
+            if (string.Equals(_usbIpdVersion, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _usbIpdVersion = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UsbIpdVersion)));
+        }
+    }
 
     public string SelectedTheme
     {
@@ -249,6 +296,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SettingsOverlay.CheckUsbIpRequested += CheckUsbIpStub_OnClick;
         SettingsOverlay.OpenUsbIpDocsRequested += OpenUsbIpDocs_OnClick;
         SettingsOverlay.ResetSetupRequested += ResetSetup_OnClick;
+        SettingsOverlay.CopyVersionInfoRequested += CopyVersionInfo_OnClick;
 
         DataContext = _vm;
         SettingsOverlay.DataContext = this;
@@ -269,6 +317,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 _ = _vm.InitializeAsync();
             }
+
+            _ = RefreshVersionInfoAsync();
         };
         Closing += OnWindowClosing;
         StateChanged += OnWindowStateChanged;
@@ -420,6 +470,66 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void CloseButton_OnClick(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private async Task RefreshVersionInfoAsync()
+    {
+        if (_isRefreshingVersionInfo)
+        {
+            return;
+        }
+
+        _isRefreshingVersionInfo = true;
+        try
+        {
+            var response = await _client.Device.GetVersionInfoAsync(new GetVersionInfoRequest());
+            BackendVersion = NormalizeVersion(response.ServiceVersion);
+            WslVersion = NormalizeVersion(response.WslVersion);
+            UsbIpdVersion = NormalizeVersion(response.UsbipdVersion);
+        }
+        catch
+        {
+            BackendVersion = "Unknown";
+            WslVersion = "Unknown";
+            UsbIpdVersion = "Unknown";
+        }
+        finally
+        {
+            _isRefreshingVersionInfo = false;
+        }
+    }
+
+    private static string NormalizeVersion(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim();
+
+    private string BuildVersionInfoText()
+        => string.Join(Environment.NewLine,
+        [
+            "Version Information",
+            string.Empty,
+            $"App (Frontend): {FrontendVersion}",
+            $"Service (Backend): {BackendVersion}",
+            $"WSL: {WslVersion}",
+            $"usbipd: {UsbIpdVersion}",
+        ]);
+
+    private void CopyVersionInfo_OnClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Windows.Clipboard.SetText(BuildVersionInfoText());
+            ShowThemedNoticeDialog(
+                "Version info copied",
+                "Version details have been copied to your clipboard.",
+                "OK");
+        }
+        catch (Exception ex)
+        {
+            ShowThemedNoticeDialog(
+                "Copy failed",
+                $"Unable to copy version info. {ex.Message}",
+                "OK");
+        }
     }
 
     private void InstallUsbIpStub_OnClick(object sender, RoutedEventArgs e)

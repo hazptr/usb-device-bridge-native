@@ -36,6 +36,8 @@ public partial class SettingsOverlayControl : UserControl
 
     public event RoutedEventHandler? ResetSetupRequested;
 
+    public event RoutedEventHandler? CopyVersionInfoRequested;
+
     private void CloseSettingsButton_OnClick(object sender, RoutedEventArgs e)
         => CloseRequested?.Invoke(sender, e);
 
@@ -53,4 +55,7 @@ public partial class SettingsOverlayControl : UserControl
 
     private void ResetSetup_OnClick(object sender, RoutedEventArgs e)
         => ResetSetupRequested?.Invoke(sender, e);
+
+    private void CopyVersionInfo_OnClick(object sender, RoutedEventArgs e)
+        => CopyVersionInfoRequested?.Invoke(sender, e);
 }

@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-UsbDeviceBridge.Service-c3b94ed4-5c41-43f1-a5de-ad7392611d6f</UserSecretsId>
+    <Version>1.0.0</Version>
+    <InformationalVersion>1.0.0</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
