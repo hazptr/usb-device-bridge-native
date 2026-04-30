@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package usbdevicebridge.v1;
+
+service DeviceService {
+  rpc GetDevices(GetDevicesRequest) returns (GetDevicesResponse);
+  rpc StreamDevices(StreamDevicesRequest) returns (stream DeviceEvent);
+  rpc AttachDevice(AttachDeviceRequest) returns (AttachDeviceResponse);
+  rpc DetachDevice(DetachDeviceRequest) returns (DetachDeviceResponse);
+  rpc QueryWslDistros(QueryWslDistrosRequest) returns (QueryWslDistrosResponse);
+}
+
+message GetDevicesRequest {}
+
+message GetDevicesResponse {
+  repeated Device devices = 1;
+}
+
+message StreamDevicesRequest {}
+
+message DeviceEvent {
+  Device device = 1;
+  string event_type = 2;
+  string stream_key = 3;
+}
+
+message AttachDeviceRequest {
+  string instance_id = 1;
+  string bus_id = 2;
+  string wsl_distro = 3;
+  bool remember = 4;
+}
+
+message AttachDeviceResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message DetachDeviceRequest {
+  string instance_id = 1;
+  string bus_id = 2;
+}
+
+message DetachDeviceResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message QueryWslDistrosRequest {}
+
+message QueryWslDistrosResponse {
+  repeated string distros = 1;
+}
+
+message Device {
+  string instance_id = 1;
+  string bus_id = 2;
+  string description = 3;
+  string hardware_id = 4;
+  string state = 5;
+  bool remembered = 6;
+  string preferred_distro = 7;
+  bool attaching = 8;
+}

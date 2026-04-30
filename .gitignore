@@ -1,0 +1,14 @@
+﻿# Local-only directories
+.claude/
+.github/
+docs/
+
+# Build output
+bin/
+obj/
+*.user
+.vs/
+
+# OS
+Thumbs.db
+desktop.ini

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/UsbDeviceBridge.App/UsbDeviceBridge.App.csproj" />
+    <Project Path="src/UsbDeviceBridge.Protos/UsbDeviceBridge.Protos.csproj" />
+    <Project Path="src/UsbDeviceBridge.Service/UsbDeviceBridge.Service.csproj" />
+    <Project Path="src/UsbDeviceBridge.Tests/UsbDeviceBridge.Tests.csproj" />
+  </Folder>
+</Solution>

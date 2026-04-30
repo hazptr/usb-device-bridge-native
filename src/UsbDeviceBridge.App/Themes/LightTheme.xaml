@@ -1,0 +1,46 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- Theme discovery key — the app scans for this in every Themes/*.xaml file -->
+    <sys:String x:Key="ThemeName">Light</sys:String>
+
+    <SolidColorBrush x:Key="PageBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SurfaceBg" Color="#F8FAFC"/>
+    <SolidColorBrush x:Key="CardBg" Color="#F1F5F9"/>
+    <SolidColorBrush x:Key="HeaderBg" Color="#F8FAFC"/>
+    <SolidColorBrush x:Key="StatusBarBg" Color="#F8FAFC"/>
+    <SolidColorBrush x:Key="BorderSubtleBrush" Color="#E2E8F0"/>
+    <SolidColorBrush x:Key="BorderBrush" Color="#CBD5E1"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#0D9488"/>
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#0F766E"/>
+    <SolidColorBrush x:Key="TextPrimary" Color="#0F172A"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#334155"/>
+    <SolidColorBrush x:Key="TextMuted" Color="#64748B"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#16A34A"/>
+    <SolidColorBrush x:Key="ErrorBrush" Color="#DC2626"/>
+    <SolidColorBrush x:Key="WarningBrush" Color="#D97706"/>
+    <SolidColorBrush x:Key="InfoBrush" Color="#2563EB"/>
+
+    <SolidColorBrush x:Key="AttachedBg" Color="#DCFCE7"/>
+    <SolidColorBrush x:Key="AttachedFg" Color="#16A34A"/>
+    <SolidColorBrush x:Key="SharedBg" Color="#FEF3C7"/>
+    <SolidColorBrush x:Key="SharedFg" Color="#D97706"/>
+    <SolidColorBrush x:Key="AvailableBg" Color="#F1F5F9"/>
+    <SolidColorBrush x:Key="AvailableFg" Color="#64748B"/>
+    <SolidColorBrush x:Key="OfflineBg" Color="#EDE9FE"/>
+    <SolidColorBrush x:Key="OfflineFg" Color="#7C3AED"/>
+
+    <SolidColorBrush x:Key="GhostHoverBrush" Color="#E2E8F0"/>
+    <SolidColorBrush x:Key="CloseHoverBrush" Color="#D94343"/>
+    <SolidColorBrush x:Key="ComboBackgroundBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="FeedbackSuccessBg" Color="#DCFCE7"/>
+    <SolidColorBrush x:Key="FeedbackErrorBg" Color="#FEE2E2"/>
+    <SolidColorBrush x:Key="FeedbackWarningBg" Color="#FEF3C7"/>
+    <SolidColorBrush x:Key="FeedbackInfoBg" Color="#DBEAFE"/>
+    <Color x:Key="ToastShadowColor">#000000</Color>
+    <SolidColorBrush x:Key="SidebarBg" Color="#F8FAFC"/>
+    <SolidColorBrush x:Key="OverlayBg" Color="#CCF8FAFC"/>
+    <SolidColorBrush x:Key="InputBorderBrush" Color="#CBD5E1"/>
+
+</ResourceDictionary>

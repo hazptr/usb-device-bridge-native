@@ -1,0 +1,367 @@
+<UserControl x:Class="UsbDeviceBridge.App.Views.Main.SettingsOverlayControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource OverlayBg}"
+             Visibility="Collapsed">
+    <Border x:Name="SettingsPanelShell"
+            Width="840"
+            Height="560"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Background="{DynamicResource SurfaceBg}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="14"
+            Padding="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Settings"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextSecondary}"
+                           VerticalAlignment="Center"/>
+                <Button x:Name="CloseSettingsButton"
+                        Grid.Column="1"
+                        Style="{StaticResource IconBtn}"
+                        Width="30"
+                        Height="30"
+                        ToolTip="Close settings"
+                        Click="CloseSettingsButton_OnClick">
+                    <TextBlock FontFamily="Segoe MDL2 Assets"
+                               Text="&#xE8BB;"
+                               FontSize="10"
+                               Foreground="{DynamicResource TextMuted}"
+                               VerticalAlignment="Center"/>
+                </Button>
+            </Grid>
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="240"/>
+                    <ColumnDefinition Width="1"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                    <Grid>
+                        <TextBox x:Name="SettingsSearchBox"
+                                 TextChanged="SettingsSearchBox_OnTextChanged"
+                                 ToolTip="Search settings"/>
+                        <TextBlock Text="Search settings..."
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextMuted}"
+                                   IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock"
+                                       BasedOn="{StaticResource {x:Type TextBlock}}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=SettingsSearchBox}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <StackPanel x:Name="SettingsSectionFiltersHost"
+                                Margin="0,10,0,0"
+                                Orientation="Vertical"/>
+                </StackPanel>
+                <Rectangle Grid.Column="1"
+                           Fill="{DynamicResource BorderBrush}"/>
+                <ScrollViewer Grid.Column="3"
+                              VerticalScrollBarVisibility="Auto"
+                              Padding="0,0,10,0">
+                    <StackPanel x:Name="SettingsSectionsRoot">
+                        <Border x:Name="SettingsSectionVersion"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0"
+                                Padding="0,0,0,0"
+                                Margin="0,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Version info"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowFrontendVersion"
+                                      Tag="version frontend app ui build"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Frontend version"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding FrontendVersion}"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowBackendVersion"
+                                      Tag="version backend service api"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Backend version"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding BackendVersion}"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SettingsSectionSetup"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Setup and updates"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowUsbIpInstall"
+                                      Tag="install usbip usbipd wsl packages setup"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Install usbipd-win or WSL components"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Content="Install"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="InstallUsbIpStub_OnClick"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowUsbIpCheck"
+                                      Tag="check updates usbip setup status"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Check USBIP setup status"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Content="Check now"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="CheckUsbIpStub_OnClick"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowUsbIpDocs"
+                                      Tag="usbip docs help"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Open setup documentation"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Content="Open docs"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="OpenUsbIpDocs_OnClick"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowReset"
+                                      Tag="reset setup preferences onboarding"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Reset first-run setup"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Content="Reset"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="ResetSetup_OnClick"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SettingsSectionDevices"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Device list"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowAutoRefresh"
+                                      Tag="auto refresh device list"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Auto-refresh device list"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding AutoRefreshEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowSort"
+                                      Tag="sort order devices"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Sort order"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              Style="{StaticResource DistroCombo}"
+                                              Width="190"
+                                              ItemsSource="{Binding SortOrders}"
+                                              SelectedItem="{Binding SortOrderSelected, Mode=TwoWay}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SettingsSectionWindow"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Window"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowTray"
+                                      Tag="tray minimize to tray"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Minimize to tray"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding MinimizeToTrayEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowStartMin"
+                                      Tag="start minimized startup launch"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Start minimized"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding StartMinimizedEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowStartWithWindows"
+                                      Tag="start with windows login startup"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Start with Windows"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding StartWithWindowsEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowServiceStartupMode"
+                                      Tag="service startup mode automatic on-demand manual"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Service startup mode"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              Style="{StaticResource DistroCombo}"
+                                              Width="190"
+                                              ItemsSource="{Binding ServiceStartupModes}"
+                                              SelectedItem="{Binding ServiceStartupModeSelected, Mode=TwoWay}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SettingsSectionAppearance"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Appearance"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowTheme"
+                                      Tag="theme dark light appearance"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Theme"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              Style="{StaticResource DistroCombo}"
+                                              Width="160"
+                                              ItemsSource="{Binding AvailableThemes}"
+                                              SelectedItem="{Binding SelectedTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowAutoUpdate"
+                                      Tag="auto update releases"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Automatic update checks"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding AutoUpdateEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

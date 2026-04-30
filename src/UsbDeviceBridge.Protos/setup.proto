@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package usbdevicebridge.v1;
+
+service SetupService {
+  rpc CheckPrerequisites(CheckPrerequisitesRequest) returns (CheckPrerequisitesResponse);
+  rpc QueryDistros(QueryDistrosRequest) returns (QueryDistrosResponse);
+  rpc ConfigureDistros(ConfigureDistrosRequest) returns (stream SetupOutputEvent);
+  rpc RunSetup(RunSetupRequest) returns (stream SetupOutputEvent);
+}
+
+message CheckPrerequisitesRequest {}
+
+message PrerequisiteStatus {
+  string name = 1;        // e.g., "usbipd-win", "WSL2"
+  string status = 2;      // "installed", "missing", "outdated"
+  string version = 3;     // installed version, empty if missing
+  string message = 4;     // human-readable status
+}
+
+message CheckPrerequisitesResponse {
+  repeated PrerequisiteStatus prerequisites = 1;
+  bool all_met = 2;       // true if no installation needed
+}
+
+message RunSetupRequest {}
+
+message SetupOutputEvent {
+  string output_line = 1; // stdout/stderr line
+  bool is_error = 2;      // true if from stderr
+  int32 exit_code = 3;    // 0 if still running, exit code when complete
+}
+
+message QueryDistrosRequest {}
+
+message DistroInfo {
+  string name = 1;        // e.g., "Ubuntu", "Debian"
+  bool is_running = 2;    // true if distro is currently running
+  string version = 3;     // WSL version (1 or 2)
+  string default_user = 4; // default user in distro
+}
+
+message QueryDistrosResponse {
+  repeated DistroInfo distros = 1;
+}
+
+message ConfigureDistrosRequest {
+  repeated string distro_names = 1;  // which distros to configure
+  repeated string packages = 2;      // packages to install (e.g., "build-essential", "python3-pip")
+}
+

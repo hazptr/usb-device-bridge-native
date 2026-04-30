@@ -1,0 +1,233 @@
+<UserControl x:Class="UsbDeviceBridge.App.Views.Main.NotificationOverlayControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Visibility="Collapsed">
+    <Grid VerticalAlignment="Top"
+          HorizontalAlignment="Right"
+          Margin="0,50,20,0"
+          Panel.ZIndex="11">
+        <Border x:Name="NotificationMenuBorder"
+                Background="{DynamicResource CardBg}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="10"
+                Width="400"
+                MaxHeight="500">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="NotificationMenuTransform"/>
+            </Border.RenderTransform>
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="20"
+                                  ShadowDepth="4"
+                                  Direction="270"
+                                  Color="{DynamicResource ToastShadowColor}"
+                                  Opacity="0.4"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        Background="{DynamicResource HeaderBg}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,0,0,1"
+                        Padding="14,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="Notifications"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                ToolTip="Close"
+                                Click="CloseNotificationMenu_OnClick"
+                                Style="{StaticResource IconBtn}"
+                                Width="24"
+                                Height="24"
+                                Padding="4">
+                            <TextBlock FontFamily="Segoe MDL2 Assets"
+                                       Text="&#xE8BB;"
+                                       FontSize="9"/>
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        Background="{DynamicResource PageBg}"
+                        Padding="10,8"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,0,0,1">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="FilterAllBtn"
+                                Content="All"
+                                Click="FilterButton_OnClick"
+                                Tag="All"
+                                Style="{StaticResource SettingsFilterButton}"
+                                Padding="10,6"
+                                FontSize="11"
+                                Background="{DynamicResource AccentBrush}"
+                                Foreground="White"
+                                Margin="0,0,4,0"/>
+                        <Button x:Name="FilterErrorsBtn"
+                                Content="Errors"
+                                Click="FilterButton_OnClick"
+                                Tag="Error"
+                                Style="{StaticResource SettingsFilterButton}"
+                                Padding="10,6"
+                                FontSize="11"
+                                Margin="0,0,4,0"/>
+                        <Button x:Name="FilterWarningsBtn"
+                                Content="Warnings"
+                                Click="FilterButton_OnClick"
+                                Tag="Warning"
+                                Style="{StaticResource SettingsFilterButton}"
+                                Padding="10,6"
+                                FontSize="11"
+                                Margin="0,0,4,0"/>
+                        <Button x:Name="FilterInfoBtn"
+                                Content="Info"
+                                Click="FilterButton_OnClick"
+                                Tag="Info"
+                                Style="{StaticResource SettingsFilterButton}"
+                                Padding="10,6"
+                                FontSize="11"
+                                Margin="0"/>
+                    </StackPanel>
+                </Border>
+
+                <Grid Grid.Row="2">
+                    <Border x:Name="NotificationEmptyState"
+                            Visibility="Collapsed"
+                            Padding="20,40">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <TextBlock FontFamily="Segoe MDL2 Assets"
+                                       Text="&#xE7E7;"
+                                       FontSize="28"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       Margin="0,0,0,10"/>
+                            <TextBlock Text="Nothing here right now"
+                                       FontSize="12"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextMuted}"/>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer x:Name="NotificationsScrollViewer"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="NotificationsItemsControl"
+                                      Padding="10">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource PageBg}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="10,8"
+                                            Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Column="0"
+                                                       FontFamily="Segoe MDL2 Assets"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,8,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text"
+                                                                Value="&#xE946;"/>
+                                                        <Setter Property="Foreground"
+                                                                Value="{DynamicResource InfoBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Severity}" Value="0">
+                                                                <Setter Property="Text" Value="&#xE946;"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource InfoBrush}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Severity}" Value="1">
+                                                                <Setter Property="Text" Value="&#xE7BA;"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Severity}" Value="2">
+                                                                <Setter Property="Text" Value="&#xE711;"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+
+                                            <Grid Grid.Column="1">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0"
+                                                           Text="{Binding Message}"
+                                                           FontSize="12"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                                <TextBlock Grid.Row="1"
+                                                           Text="{Binding Timestamp}"
+                                                           FontSize="10"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           Margin="0,2,0,0"/>
+                                            </Grid>
+
+                                            <Button Grid.Column="2"
+                                                    Click="DismissNotification_OnClick"
+                                                    Tag="{Binding Id}"
+                                                    Style="{StaticResource IconBtn}"
+                                                    Width="20"
+                                                    Height="20"
+                                                    Padding="2"
+                                                    VerticalAlignment="Top">
+                                                <TextBlock FontFamily="Segoe MDL2 Assets"
+                                                           Text="&#xE8BB;"
+                                                           FontSize="8"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+
+                <Border Grid.Row="3"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="10,8">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Left">
+                        <Button Content="Mark all as read"
+                                Click="MarkAllAsRead_OnClick"
+                                Style="{StaticResource SettingsFilterButton}"
+                                Padding="10,6"
+                                FontSize="11"
+                                Margin="0,0,10,0"/>
+                        <Button Content="Clear all"
+                                Click="ClearAllNotifications_OnClick"
+                                Style="{StaticResource SettingsFilterButton}"
+                                Padding="10,6"
+                                FontSize="11"
+                                Margin="0"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
