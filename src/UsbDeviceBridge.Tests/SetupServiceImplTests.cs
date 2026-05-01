@@ -6,6 +6,7 @@ using Usbdevicebridge.V1;
 
 namespace UsbDeviceBridge.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class SetupServiceImplTests
 {
     [Fact]

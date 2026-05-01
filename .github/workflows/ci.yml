@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-and-test:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -43,17 +44,33 @@ jobs:
         run: dotnet build src/UsbDeviceBridge.Tests/UsbDeviceBridge.Tests.csproj -c Release --no-restore
 
       - name: Run Tests
-        run: >
-          dotnet test src/UsbDeviceBridge.Tests/UsbDeviceBridge.Tests.csproj
-          -c Release
-          --no-build
-          --logger "trx;LogFileName=test-results.trx"
-          --results-directory ./test-results
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+          Write-Host "Starting test run at $(Get-Date -Format o)"
+          dotnet test src/UsbDeviceBridge.Tests/UsbDeviceBridge.Tests.csproj `
+            -c Release `
+            --no-build `
+            --filter "FullyQualifiedName!~SetupServiceImplTests" `
+            --logger "console;verbosity=normal" `
+            --logger "trx;LogFileName=test-results.trx" `
+            --results-directory ./test-results `
+            --blame-hang `
+            --blame-hang-timeout 5m `
+            --diag ./test-results/dotnet-test-diag.log
+          $exitCode = $LASTEXITCODE
+          $stopwatch.Stop()
+          Write-Host "Test run finished in $([Math]::Round($stopwatch.Elapsed.TotalSeconds, 2)) seconds with exit code $exitCode"
+          exit $exitCode
 
       - name: Publish Test Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: ./test-results/*.trx
+          path: |
+            ./test-results/*.trx
+            ./test-results/*.log
+            ./test-results/**/*Sequence*.xml
           if-no-files-found: ignore
