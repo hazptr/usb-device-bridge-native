@@ -3,13 +3,19 @@
   <PropertyGroup>
     <OutputName>UsbDeviceBridgeSetup</OutputName>
     <Platform>x64</Platform>
+    <InstallerConfiguration Condition="'$(InstallerConfiguration)' == ''">$(Configuration)</InstallerConfiguration>
+    <InstallerConfiguration Condition="'$(InstallerConfiguration)' == ''">Release</InstallerConfiguration>
+    <InstallerRuntime Condition="'$(InstallerRuntime)' == ''">win-x64</InstallerRuntime>
     <!--
       ServicePublishDir and AppPublishDir can be overridden by the caller (e.g. CI/CD).
       Both are siblings of this project under src/.
     -->
-    <ServicePublishDir Condition="'$(ServicePublishDir)' == ''">$(MSBuildThisFileDirectory)..\UsbDeviceBridge.Service\bin\Release\net10.0\win-x64\publish</ServicePublishDir>
-    <AppPublishDir Condition="'$(AppPublishDir)' == ''">$(MSBuildThisFileDirectory)..\UsbDeviceBridge.App\bin\Release\net10.0-windows\win-x64\publish</AppPublishDir>
-    <DefineConstants>ServicePublishDir=$(ServicePublishDir);AppPublishDir=$(AppPublishDir)</DefineConstants>
+    <ServicePublishDir Condition="'$(ServicePublishDir)' == ''">$(MSBuildThisFileDirectory)..\UsbDeviceBridge.Service\bin\$(InstallerConfiguration)\net10.0\$(InstallerRuntime)\publish</ServicePublishDir>
+    <AppPublishDir Condition="'$(AppPublishDir)' == ''">$(MSBuildThisFileDirectory)..\UsbDeviceBridge.App\bin\$(InstallerConfiguration)\net10.0-windows\$(InstallerRuntime)\publish</AppPublishDir>
+    <!-- PackageVersion is the MSI product version (Major.Minor.Patch only). -->
+    <!-- Override from the command line: -p:PackageVersion=1.2.3               -->
+    <PackageVersion Condition="'$(PackageVersion)' == ''">1.0.0</PackageVersion>
+    <DefineConstants>ServicePublishDir=$(ServicePublishDir);AppPublishDir=$(AppPublishDir);PackageVersion=$(PackageVersion)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

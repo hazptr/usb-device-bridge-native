@@ -3,46 +3,6 @@ using Usbdevicebridge.V1;
 
 namespace UsbDeviceBridge.App.Services;
 
-public sealed record ForgetDeviceOutcome(bool Ok, string Message);
-
-public interface IRememberedDeviceResetClient
-{
-    Task<IReadOnlyList<string>> GetRememberedInstanceIdsAsync(CancellationToken cancellationToken = default);
-    Task<ForgetDeviceOutcome> ForgetDeviceAsync(string instanceId, CancellationToken cancellationToken = default);
-}
-
-public sealed class BridgeRememberedDeviceResetClient : IRememberedDeviceResetClient
-{
-    private readonly AutoAttachService.AutoAttachServiceClient _autoAttachClient;
-
-    public BridgeRememberedDeviceResetClient(AutoAttachService.AutoAttachServiceClient autoAttachClient)
-    {
-        _autoAttachClient = autoAttachClient;
-    }
-
-    public async Task<IReadOnlyList<string>> GetRememberedInstanceIdsAsync(CancellationToken cancellationToken = default)
-    {
-        var response = await _autoAttachClient.GetRememberedDevicesAsync(
-            new GetRememberedDevicesRequest(),
-            cancellationToken: cancellationToken);
-
-        return response.Devices
-            .Select(d => d.InstanceId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    public async Task<ForgetDeviceOutcome> ForgetDeviceAsync(string instanceId, CancellationToken cancellationToken = default)
-    {
-        var response = await _autoAttachClient.ForgetDeviceAsync(
-            new ForgetDeviceRequest { InstanceId = instanceId },
-            cancellationToken: cancellationToken);
-
-        return new ForgetDeviceOutcome(response.Ok, response.Message);
-    }
-}
-
 public sealed record SettingsResetResult(bool Succeeded, int ForgottenCount, string ErrorMessage)
 {
     public static SettingsResetResult Success(int forgottenCount)
@@ -54,31 +14,59 @@ public sealed record SettingsResetResult(bool Succeeded, int ForgottenCount, str
 
 public sealed class SettingsResetService
 {
-    private readonly IRememberedDeviceResetClient _rememberedDeviceClient;
+    private readonly AppRememberedDeviceStore _rememberedStore;
+    private readonly LocalDeviceManager _deviceManager;
+    private readonly BridgeServiceClient _serviceClient;
     private readonly AppSettingsService _settingsService;
 
-    public SettingsResetService(IRememberedDeviceResetClient rememberedDeviceClient, AppSettingsService settingsService)
+    public SettingsResetService(
+        AppRememberedDeviceStore rememberedStore,
+        LocalDeviceManager deviceManager,
+        BridgeServiceClient serviceClient,
+        AppSettingsService settingsService)
     {
-        _rememberedDeviceClient = rememberedDeviceClient;
+        _rememberedStore = rememberedStore;
+        _deviceManager = deviceManager;
+        _serviceClient = serviceClient;
         _settingsService = settingsService;
     }
 
-    public async Task<SettingsResetResult> ResetAsync(CancellationToken cancellationToken = default)
+    public async Task<SettingsResetResult> ResetAsync(CancellationToken ct = default)
     {
         try
         {
-            var instanceIds = await _rememberedDeviceClient.GetRememberedInstanceIdsAsync(cancellationToken);
+            var remembered = _rememberedStore.Load();
             var forgottenCount = 0;
 
-            foreach (var instanceId in instanceIds)
+            // Best-effort: release each device before forgetting it.
+            IReadOnlyList<Usbdevicebridge.V1.Device>? devices = null;
+            try { devices = await _deviceManager.GetDevicesAsync(ct); } catch { }
+
+            foreach (var instanceId in remembered.Keys.ToList())
             {
-                var forgetResult = await _rememberedDeviceClient.ForgetDeviceAsync(instanceId, cancellationToken);
-                if (!forgetResult.Ok)
+                try
                 {
-                    return SettingsResetResult.Failed(
-                        $"Failed to forget device '{instanceId}'. {forgetResult.Message}");
+                    var device = devices?.FirstOrDefault(d =>
+                        string.Equals(d.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase));
+
+                    if (device is not null && device.State == "attached")
+                    {
+                        await _deviceManager.DetachAsync(device.BusId, ct);
+                    }
+
+                    if (device is not null && device.State != "available")
+                    {
+                        await _serviceClient.Admin.UnbindDeviceAsync(
+                            new UnbindDeviceRequest { BusId = device.BusId, HardwareId = device.HardwareId },
+                            cancellationToken: ct);
+                    }
+                }
+                catch
+                {
+                    // Best effort; continue forgetting remaining devices.
                 }
 
+                _rememberedStore.Remove(instanceId);
                 forgottenCount++;
             }
 

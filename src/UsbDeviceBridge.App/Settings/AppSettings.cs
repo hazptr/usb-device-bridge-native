@@ -69,5 +69,16 @@ public sealed class AppSettings
     /// </summary>
     public string FirewallFixPolicy { get; set; } = FirewallFixPolicies.Ask;
 
-    public Dictionary<string, string> DeviceDistroSelections { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Controls whether the app sends OS-level Action Center notifications
+    /// when the window is not focused. In-app toasts are always shown.
+    /// </summary>
+    public bool WindowsNotificationsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Controls whether all attached/shared USB devices are detached and unbound
+    /// when the app closes. Remembered devices will be re-attached on next launch.
+    /// </summary>
+    public bool DetachOnExit { get; set; } = true;
+
 }

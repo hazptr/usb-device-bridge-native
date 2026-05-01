@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Suppress the automatic "+<full-git-SHA>" suffix the .NET SDK appends to
+      InformationalVersion via SourceRevisionId. Our Get-Version.ps1 already
+      embeds the short hash in the informational version string, so the long
+      hash is redundant noise.
+    -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package usbdevicebridge.v1;
+
+service AdminService {
+  rpc BindDevice(BindDeviceRequest) returns (BindDeviceResponse);
+  rpc UnbindDevice(UnbindDeviceRequest) returns (UnbindDeviceResponse);
+  rpc ApplyFirewallFix(ApplyFirewallFixRequest) returns (ApplyFirewallFixResponse);
+}
+
+message BindDeviceRequest {
+  string bus_id = 1;
+  bool force = 2;
+}
+
+message BindDeviceResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message UnbindDeviceRequest {
+  string bus_id = 1;
+  string hardware_id = 2;
+}
+
+message UnbindDeviceResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message ApplyFirewallFixRequest {}
+
+message ApplyFirewallFixResponse {
+  bool ok = 1;
+  string message = 2;
+}

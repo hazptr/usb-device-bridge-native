@@ -17,8 +17,7 @@ public interface IPrerequisiteChecker
 /// </summary>
 internal sealed class PrerequisiteChecker(
     ILogger<PrerequisiteChecker> logger,
-    ISetupProcessRunner processRunner,
-    WslInterop wslInterop
+    ISetupProcessRunner processRunner
 ) : IPrerequisiteChecker
 {
     public async Task<List<PrerequisiteStatus>> GetAllPrerequisitesStatusAsync(CancellationToken ct)
@@ -105,19 +104,6 @@ internal sealed class PrerequisiteChecker(
     {
         try
         {
-            var result = await wslInterop.ListDistrosQuietAsync(ct);
-
-            if (result.ExitCode != 0)
-            {
-                return new PrerequisiteStatus
-                {
-                    Name = "WSL2",
-                    Status = "missing",
-                    Version = "",
-                    Message = "WSL2 not found. Install with: wsl --install",
-                };
-            }
-
             var versionResult = await processRunner.RunProcessAsync("wsl", ["--version"], ct);
             string wslVersion = "unknown";
             if (versionResult.Code == 0 && versionResult.StdOut is { } vOut)
@@ -129,14 +115,34 @@ internal sealed class PrerequisiteChecker(
                     ? firstLine[(colonIdx + 1)..].Trim()
                     : firstLine;
                 if (string.IsNullOrEmpty(wslVersion)) wslVersion = "unknown";
+
+                return new PrerequisiteStatus
+                {
+                    Name = "WSL2",
+                    Status = "installed",
+                    Version = wslVersion,
+                    Message = $"WSL2 {wslVersion}",
+                };
+            }
+
+            var statusResult = await processRunner.RunProcessAsync("wsl", ["--status"], ct);
+            if (statusResult.Code == 0)
+            {
+                return new PrerequisiteStatus
+                {
+                    Name = "WSL2",
+                    Status = "installed",
+                    Version = "unknown",
+                    Message = "WSL2 installed",
+                };
             }
 
             return new PrerequisiteStatus
             {
                 Name = "WSL2",
-                Status = "installed",
-                Version = wslVersion,
-                Message = $"WSL2 {wslVersion}",
+                Status = "missing",
+                Version = "",
+                Message = "WSL2 not found. Install with: wsl --install",
             };
         }
         catch (Exception ex)

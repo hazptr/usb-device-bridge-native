@@ -1,5 +1,6 @@
 using Forms = System.Windows.Forms;
 using System.Windows;
+using UsbDeviceBridge.App.Models;
 
 namespace UsbDeviceBridge.App.Shell;
 
@@ -93,6 +94,34 @@ public sealed class TrayIconManager : IDisposable
         };
 
         _notifyIcon.Text = $"USB Device Bridge for WSL{suffix}";
+    }
+
+    /// <summary>
+    /// Shows an OS notification (balloon tip) via the notification area.
+    /// </summary>
+    /// <param name="title">Short title/heading for the notification.</param>
+    /// <param name="message">Main message text.</param>
+    /// <param name="severity">Notification severity; determines icon and behavior.</param>
+    /// <param name="durationMs">Duration to display in milliseconds (0 = system default ~10s).</param>
+    public void ShowOsNotification(string title, string message, NotificationSeverity severity, int durationMs = 0)
+    {
+        try
+        {
+            // Map severity to tooltip icon
+            var icon = severity switch
+            {
+                NotificationSeverity.Error => Forms.ToolTipIcon.Error,
+                NotificationSeverity.Warning => Forms.ToolTipIcon.Warning,
+                _ => Forms.ToolTipIcon.Info,
+            };
+
+            // ShowBalloonTip shows a notification area balloon; durationMs of 0 uses system default (~10 seconds)
+            _notifyIcon.ShowBalloonTip(durationMs, title, message, icon);
+        }
+        catch
+        {
+            // Silently ignore if notification dispatch fails (system may not support it)
+        }
     }
 
     public void Dispose()

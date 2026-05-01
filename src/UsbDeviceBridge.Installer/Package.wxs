@@ -24,7 +24,7 @@
 
   <Package Name="USB Device Bridge"
            Manufacturer="USB Device Bridge"
-           Version="1.0.0"
+           Version="$(var.PackageVersion)"
            UpgradeCode="{2ED74B0D-BA1C-4C84-A1AC-0D13D6B5BEF5}"
            Compressed="yes"
            InstallerVersion="500"

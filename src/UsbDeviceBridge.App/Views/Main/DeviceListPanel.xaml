@@ -2,9 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:UsbDeviceBridge.App.ViewModels"
+             xmlns:main="clr-namespace:UsbDeviceBridge.App.Views.Main"
              Background="Transparent">
     <UserControl.Resources>
-    <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
     <Geometry x:Key="ConnectPlugGeometry">M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244</Geometry>
     <Geometry x:Key="RememberBookmarkGeometry">M4,2 L12,2 C12.55,2 13,2.45 13,3 L13,14 L8.5,11 L4,14 L4,3 C4,2.45 4.45,2 5,2 Z</Geometry>
 
@@ -23,57 +23,7 @@
     </UserControl.Resources>
 
     <Grid>
-        <!-- Service disconnected persistent banner -->
-        <Border VerticalAlignment="Center"
-                HorizontalAlignment="Center"
-                Background="{DynamicResource CardBg}"
-                BorderBrush="{DynamicResource BorderBrush}"
-                BorderThickness="1"
-                Padding="32,22"
-                CornerRadius="10"
-                Panel.ZIndex="5"
-                Visibility="{Binding IsReconnectPanelVisible, Converter={StaticResource BoolToVisConverter}}">
-            <StackPanel HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-                <ProgressBar IsIndeterminate="True"
-                             Width="160"
-                             Height="3"
-                             Margin="0,0,0,14"
-                             Foreground="{DynamicResource AccentBrush}"/>
-                <TextBlock Text="{Binding ServiceRecoveryMessage}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center"
-                           TextWrapping="Wrap"
-                           Foreground="{DynamicResource TextPrimary}"
-                           Margin="0,0,0,4"/>
-                <TextBlock Text="{Binding ServiceRecoveryDetails}"
-                           FontSize="12"
-                           Foreground="{DynamicResource TextMuted}"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center"
-                           TextWrapping="Wrap"
-                           MaxWidth="380"
-                           Margin="0,0,0,14"/>
-                <Button HorizontalAlignment="Center"
-                        MinWidth="190"
-                        Content="Restart Service"
-                        Command="{Binding DataContext.RestartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}">
-                    <Button.Style>
-                        <Style TargetType="Button"
-                               BasedOn="{StaticResource AccentBtn}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsRestartServiceInProgress}" Value="True">
-                                    <Setter Property="Content" Value="Starting..."/>
-                                    <Setter Property="IsEnabled" Value="False"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-            </StackPanel>
-        </Border>
+        <main:ServiceRecoveryPromptControl Panel.ZIndex="5"/>
 
         <StackPanel VerticalAlignment="Center"
                     HorizontalAlignment="Center"
@@ -152,41 +102,10 @@
                                     <StackPanel Grid.Column="0"
                                                 Orientation="Horizontal"
                                                 VerticalAlignment="Center"
-                                                HorizontalAlignment="Center"
+                                            HorizontalAlignment="Right"
                                                 Margin="0,0,0,0"
                                                 IsEnabled="{Binding DataContext.AreDeviceActionsEnabled, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 Visibility="{Binding ActionsVisibility}">
-                                        <ComboBox Style="{StaticResource DistroCombo}"
-                                                  ItemsSource="{Binding DataContext.Distros, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                  SelectedValuePath="Name"
-                                                  SelectedValue="{Binding SelectedDistro, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                  IsEnabled="{Binding CanSelectDistro}"
-                                                  ToolTip="{Binding DistroTooltip}"
-                                                  Margin="-6,0,6,0">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal"
-                                                                ToolTip="{Binding NameStateTooltip}">
-                                                        <Ellipse Width="8"
-                                                                 Height="8"
-                                                                 Margin="0,0,6,0"
-                                                                 VerticalAlignment="Center">
-                                                            <Ellipse.Style>
-                                                                <Style TargetType="Ellipse">
-                                                                    <Setter Property="Fill" Value="{DynamicResource AvailableFg}"/>
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsRunning}" Value="True">
-                                                                            <Setter Property="Fill" Value="{DynamicResource AttachedFg}"/>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </Ellipse.Style>
-                                                        </Ellipse>
-                                                        <TextBlock Text="{Binding Name}"/>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
                                         <Button ToolTip="{Binding ConnectTooltip}"
                                                 Visibility="{Binding ConnectVisibility}"
                                                 IsEnabled="{Binding CanConnect}"
@@ -246,7 +165,7 @@
                                     <StackPanel x:Name="BusyPane"
                                                 Orientation="Horizontal"
                                                 VerticalAlignment="Center"
-                                                HorizontalAlignment="Center"
+                                                HorizontalAlignment="Right"
                                                 Margin="0,0,0,0"
                                                 Visibility="{Binding BusyVisibility}"
                                                 Opacity="0">

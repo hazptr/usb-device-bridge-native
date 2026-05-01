@@ -3,6 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{DynamicResource OverlayBg}"
              Visibility="Collapsed">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
+    </UserControl.Resources>
+
     <Border Width="680"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
@@ -139,9 +143,72 @@
                            Text="Checking for required system dependencies..."
                            TextWrapping="Wrap"
                            Foreground="{DynamicResource TextMuted}"/>
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                    <StackPanel x:Name="SetupPrerequisitesStatus"/>
-                </ScrollViewer>
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Margin="0,0,0,12"
+                            Padding="14"
+                            CornerRadius="8"
+                            Background="{DynamicResource SecondaryBg}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            Visibility="{Binding IsReconnectPanelVisible, Converter={StaticResource BoolToVisConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding ServiceRecoveryMessage}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       Margin="0,0,0,4"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding ServiceRecoveryDetails}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       Margin="0,0,0,10"
+                                       TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal"
+                                        VerticalAlignment="Center">
+                                <ProgressBar IsIndeterminate="True"
+                                             Width="120"
+                                             Height="3"
+                                             Margin="0,0,10,0"
+                                             Foreground="{DynamicResource AccentBrush}"/>
+                                <Button Content="Start Service"
+                                        Command="{Binding DataContext.RestartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                                    <Button.Style>
+                                        <Style TargetType="Button"
+                                               BasedOn="{StaticResource AccentBtn}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsRestartServiceInProgress}" Value="True">
+                                                    <Setter Property="Content" Value="Starting..."/>
+                                                    <Setter Property="IsEnabled" Value="False"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="SetupPrerequisitesStatus"/>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2"
+                                Orientation="Horizontal"
+                                Margin="0,12,0,0">
+                        <Button x:Name="SetupInstallUsbIpdButton"
+                                Content="Install usbipd-win (winget)"
+                                Style="{StaticResource AccentBtn}"
+                                HorizontalAlignment="Left"
+                                Visibility="Collapsed"/>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <Grid x:Name="SetupStepThreePanelDistro"
@@ -234,6 +301,7 @@
                     <CheckBox x:Name="SetupAutoUpdate"
                               Style="{StaticResource ModernCheckBox}"
                               Margin="0,0,0,0"
+                              Visibility="Collapsed"
                               Content="Enable update checks by default"
                               IsChecked="True"/>
                 </StackPanel>

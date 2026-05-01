@@ -1,4 +1,3 @@
-using UsbDeviceBridge.Service.Domain;
 using UsbDeviceBridge.Service.Interop;
 
 namespace UsbDeviceBridge.Service.Devices;

@@ -17,6 +17,7 @@ public partial class MainWindow
 
     private IReadOnlyList<FrameworkElement> _searchRows = [];
     private IReadOnlyList<SettingsSectionInfo> _settingsSections = [];
+    private HashSet<FrameworkElement> _hiddenSettingRows = [];
     private readonly Dictionary<string, Button> _settingsFilterButtons = [];
     private string? _activeSettingsFilterKey;
 
@@ -58,6 +59,7 @@ public partial class MainWindow
 
         _settingsSections = discovered;
         _searchRows = discovered.SelectMany(s => s.Rows).Distinct().ToList();
+        _hiddenSettingRows = _searchRows.Where(r => r.Visibility == Visibility.Collapsed).ToHashSet();
     }
 
     private void BuildSettingsFilterButtons()
@@ -136,7 +138,7 @@ public partial class MainWindow
         if (query.Length == 0)
         {
             foreach (var row in _searchRows)
-                row.Visibility = Visibility.Visible;
+                row.Visibility = _hiddenSettingRows.Contains(row) ? Visibility.Collapsed : Visibility.Visible;
 
             foreach (var section in _settingsSections)
             {
@@ -150,6 +152,7 @@ public partial class MainWindow
 
         foreach (var row in _searchRows)
         {
+            if (_hiddenSettingRows.Contains(row)) { row.Visibility = Visibility.Collapsed; continue; }
             var tag = row.Tag?.ToString() ?? string.Empty;
             row.Visibility = tag.Contains(query, StringComparison.OrdinalIgnoreCase)
                 ? Visibility.Visible

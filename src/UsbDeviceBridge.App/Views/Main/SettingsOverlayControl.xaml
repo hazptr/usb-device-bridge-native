@@ -182,23 +182,8 @@
                                            FontSize="14"
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
-                                <Grid x:Name="SettingRowUsbIpInstall"
-                                      Tag="install usbip usbipd wsl packages setup"
-                                      Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Install usbipd-win or WSL components"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1"
-                                            Content="Install"
-                                            Style="{StaticResource GhostBtn}"
-                                            Click="InstallUsbIpStub_OnClick"/>
-                                </Grid>
                                 <Grid x:Name="SettingRowUsbIpCheck"
-                                      Tag="check updates usbip setup status"
+                                                                            Tag="check updates usbip setup status install prerequisites"
                                       Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -208,9 +193,9 @@
                                                Foreground="{DynamicResource TextSecondary}"
                                                VerticalAlignment="Center"/>
                                     <Button Grid.Column="1"
-                                            Content="Check now"
+                                                                                        Content="Check status"
                                             Style="{StaticResource GhostBtn}"
-                                            Click="CheckUsbIpStub_OnClick"/>
+                                            Click="CheckUsbIp_OnClick"/>
                                 </Grid>
                                 <Grid x:Name="SettingRowUsbIpDocs"
                                       Tag="usbip docs help"
@@ -377,6 +362,75 @@
                             </StackPanel>
                         </Border>
 
+                        <Border x:Name="SettingsSectionNotifications"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Notifications"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowWindowsNotifications"
+                                      Tag="notifications windows os action center background"
+                                      Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Show Windows notifications when app is in the background"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="In-app toasts are always shown regardless of this setting."
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   FontSize="11"
+                                                   Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding WindowsNotificationsEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SettingsSectionBehavior"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Behavior"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowDetachOnExit"
+                                      Tag="detach unbind exit close release devices shutdown"
+                                      Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Release devices when app exits"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="Detaches and unbinds all USB/IP devices when you close the app. Devices you've remembered will be re-attached on next launch."
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding DetachOnExitEnabled, Mode=TwoWay}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
                         <Border x:Name="SettingsSectionAppearance"
                                 Background="Transparent"
                                 BorderBrush="{DynamicResource BorderBrush}"
@@ -406,6 +460,7 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowAutoUpdate"
                                       Tag="auto update releases"
+                                      Visibility="Collapsed"
                                       Margin="0,0,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>

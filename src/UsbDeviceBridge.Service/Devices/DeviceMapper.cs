@@ -1,4 +1,3 @@
-using UsbDeviceBridge.Service.Domain;
 using UsbDeviceBridge.Service.Interop;
 
 namespace UsbDeviceBridge.Service.Devices;
@@ -18,16 +17,5 @@ internal static class DeviceMapper
             return null;
 
         return $"{source.VendorId.Value:x4}:{source.ProductId.Value:x4}";
-    }
-
-    /// <summary>
-    /// Extracts distro names from the verbose <c>wsl --list --verbose</c> stdout text.
-    /// </summary>
-    internal static IEnumerable<string> ParseDistroNames(string stdout)
-    {
-        foreach (var entry in WslDistroParser.ParseVerbose(stdout))
-        {
-            yield return entry.Name;
-        }
     }
 }

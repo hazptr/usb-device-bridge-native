@@ -13,144 +13,95 @@ public sealed class SettingsResetServiceTests : IDisposable
         Directory.CreateDirectory(_tempDir);
     }
 
+    // Shared helpers ─────────────────────────────────────────────────────────
+
+    // LocalDeviceManager with a non-existent binary — GetDevicesAsync throws,
+    // which SettingsResetService swallows, so it still removes devices from the store.
+    private static LocalDeviceManager NoopDeviceManager() =>
+        new(new UsbIpdClient("fake-usbipd-does-not-exist"));
+
+    // BridgeServiceClient that points at a port no one listens on.
+    // SettingsResetService only calls Admin.UnbindDeviceAsync when a device
+    // is found in state != "available"; since NoopDeviceManager returns nothing,
+    // this client is never actually invoked in these tests.
+    private static BridgeServiceClient NoopServiceClient() =>
+        new("http://127.0.0.1:1");
+
+    // Tests ──────────────────────────────────────────────────────────────────
+
     [Fact]
     public async Task ResetAsync_ForgetsRememberedDevices_AndClearsLocalSettings()
     {
         var settingsPath = Path.Combine(_tempDir, "settings.json");
+        var storePath = Path.Combine(_tempDir, "remembered_devices.json");
         var settingsService = new AppSettingsService(settingsPath);
         settingsService.Save(new AppSettings
         {
             SetupCompleted = true,
             Theme = "Light",
-            DeviceDistroSelections = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["dev-1"] = "Ubuntu",
-            },
         });
 
-        var fakeClient = new FakeRememberedDeviceResetClient
-        {
-            RememberedIds = ["dev-1", "dev-2"],
-            ForgetResults = new Dictionary<string, ForgetDeviceOutcome>(StringComparer.Ordinal)
-            {
-                ["dev-1"] = new ForgetDeviceOutcome(true, "Device forgotten."),
-                ["dev-2"] = new ForgetDeviceOutcome(true, "Device forgotten."),
-            },
-        };
+        var store = new AppRememberedDeviceStore(storePath);
+        store.AddOrUpdate("dev-1", "Ubuntu");
+        store.AddOrUpdate("dev-2", "Debian");
 
-        var sut = new SettingsResetService(fakeClient, settingsService);
+        var sut = new SettingsResetService(store, NoopDeviceManager(), NoopServiceClient(), settingsService);
+
+        var result = await sut.ResetAsync();
+        var loaded = settingsService.Load();
+        var remaining = store.Load();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.ForgottenCount);
+        Assert.Empty(remaining);
+        Assert.False(loaded.SetupCompleted);
+        Assert.Equal("Dark", loaded.Theme);
+    }
+
+    [Fact]
+    public async Task ResetAsync_ClearsSettingsWhenNoDevicesRemembered()
+    {
+        var settingsPath = Path.Combine(_tempDir, "settings.json");
+        var storePath = Path.Combine(_tempDir, "remembered_devices.json");
+        var settingsService = new AppSettingsService(settingsPath);
+        settingsService.Save(new AppSettings { SetupCompleted = true, Theme = "Light" });
+
+        var store = new AppRememberedDeviceStore(storePath);
+
+        var sut = new SettingsResetService(store, NoopDeviceManager(), NoopServiceClient(), settingsService);
 
         var result = await sut.ResetAsync();
         var loaded = settingsService.Load();
 
         Assert.True(result.Succeeded);
-        Assert.Equal(2, result.ForgottenCount);
-        Assert.Equal(["dev-1", "dev-2"], fakeClient.ForgetCalls);
+        Assert.Equal(0, result.ForgottenCount);
         Assert.False(loaded.SetupCompleted);
-        Assert.Equal("Dark", loaded.Theme);
-        Assert.Empty(loaded.DeviceDistroSelections);
     }
 
     [Fact]
-    public async Task ResetAsync_DoesNotClearLocalSettings_WhenAnyForgetFails()
+    public async Task ResetAsync_StillClearsStore_WhenDeviceQueryFails()
     {
         var settingsPath = Path.Combine(_tempDir, "settings.json");
+        var storePath = Path.Combine(_tempDir, "remembered_devices.json");
         var settingsService = new AppSettingsService(settingsPath);
-        settingsService.Save(new AppSettings
-        {
-            SetupCompleted = true,
-            Theme = "Light",
-        });
+        settingsService.Save(new AppSettings { SetupCompleted = true, Theme = "Light" });
 
-        var fakeClient = new FakeRememberedDeviceResetClient
-        {
-            RememberedIds = ["dev-1"],
-            ForgetResults = new Dictionary<string, ForgetDeviceOutcome>(StringComparer.Ordinal)
-            {
-                ["dev-1"] = new ForgetDeviceOutcome(false, "Failed to forget."),
-            },
-        };
+        var store = new AppRememberedDeviceStore(storePath);
+        store.AddOrUpdate("dev-1", "Ubuntu");
 
-        var sut = new SettingsResetService(fakeClient, settingsService);
+        // NoopDeviceManager throws; SettingsResetService swallows and still clears the store.
+        var sut = new SettingsResetService(store, NoopDeviceManager(), NoopServiceClient(), settingsService);
 
         var result = await sut.ResetAsync();
-        var loaded = settingsService.Load();
+        var remaining = store.Load();
 
-        Assert.False(result.Succeeded);
-        Assert.Contains("Failed to forget device", result.ErrorMessage, StringComparison.Ordinal);
-        Assert.True(loaded.SetupCompleted);
-        Assert.Equal("Light", loaded.Theme);
-    }
-
-    [Fact]
-    public async Task ResetAsync_DoesNotClearLocalSettings_WhenListingRememberedDevicesFails()
-    {
-        var settingsPath = Path.Combine(_tempDir, "settings.json");
-        var settingsService = new AppSettingsService(settingsPath);
-        settingsService.Save(new AppSettings
-        {
-            SetupCompleted = true,
-            Theme = "Light",
-        });
-
-        var fakeClient = new FakeRememberedDeviceResetClient
-        {
-            ThrowOnList = true,
-        };
-
-        var sut = new SettingsResetService(fakeClient, settingsService);
-
-        var result = await sut.ResetAsync();
-        var loaded = settingsService.Load();
-
-        Assert.False(result.Succeeded);
-        Assert.Contains("Reset failed.", result.ErrorMessage, StringComparison.Ordinal);
-        Assert.True(loaded.SetupCompleted);
-        Assert.Equal("Light", loaded.Theme);
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ForgottenCount);
+        Assert.Empty(remaining);
     }
 
     public void Dispose()
     {
-        try
-        {
-            Directory.Delete(_tempDir, recursive: true);
-        }
-        catch
-        {
-            // Best-effort cleanup for temp test folders.
-        }
-    }
-
-    private sealed class FakeRememberedDeviceResetClient : IRememberedDeviceResetClient
-    {
-        public IReadOnlyList<string> RememberedIds { get; init; } = [];
-
-        public Dictionary<string, ForgetDeviceOutcome> ForgetResults { get; init; }
-            = new(StringComparer.Ordinal);
-
-        public List<string> ForgetCalls { get; } = [];
-
-        public bool ThrowOnList { get; init; }
-
-        public Task<IReadOnlyList<string>> GetRememberedInstanceIdsAsync(CancellationToken cancellationToken = default)
-        {
-            if (ThrowOnList)
-            {
-                throw new InvalidOperationException("List failed");
-            }
-
-            return Task.FromResult(RememberedIds);
-        }
-
-        public Task<ForgetDeviceOutcome> ForgetDeviceAsync(string instanceId, CancellationToken cancellationToken = default)
-        {
-            ForgetCalls.Add(instanceId);
-            if (ForgetResults.TryGetValue(instanceId, out var result))
-            {
-                return Task.FromResult(result);
-            }
-
-            return Task.FromResult(new ForgetDeviceOutcome(true, "Device forgotten."));
-        }
+        try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 }

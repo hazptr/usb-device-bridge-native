@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net.Sockets;
-using UsbDeviceBridge.Service.Interop.UsbIpProtocol;
+using UsbDeviceBridge.App.Interop.UsbIpProtocol;
+using UsbDeviceBridge.App.Models;
 
-namespace UsbDeviceBridge.Service.Interop;
+namespace UsbDeviceBridge.App.Services;
 
 public sealed class UsbIpdClient
 {
@@ -25,27 +27,12 @@ public sealed class UsbIpdClient
 
     public string UsbIpdPath => _usbIpdPath;
 
-    // --- Discovery and CLI operations ---
-
     public async Task<IReadOnlyList<UsbIpdStateDevice>> GetDevicesAsync(CancellationToken ct)
     {
         var tcpDevices = await GetDevicesViaTcpAsync(ct);
         var stateDevices = await GetDevicesFromStateAsync(ct);
 
         return MergeDevices(tcpDevices, stateDevices);
-    }
-
-    public async Task<(bool Ok, string Message)> BindAsync(string busId, bool force, CancellationToken ct)
-    {
-        var args = force
-            ? new[] { "bind", "-b", busId, "--force" }
-            : new[] { "bind", "-b", busId };
-        var (code, stdout, stderr) = await RunCliAsync(args, ct);
-        if (code == 0)
-            return (true, string.Empty);
-
-        var message = $"{stderr}\n{stdout}".Trim();
-        return (false, string.IsNullOrWhiteSpace(message) ? "bind failed" : message);
     }
 
     public async Task<(bool Ok, string Message)> AttachAsync(
@@ -61,10 +48,9 @@ public sealed class UsbIpdClient
                 ? new[] { "attach", "--busid", busId, "--wsl" }
                 : new[] { "attach", "--busid", busId, "--wsl", distro };
 
-            // usbipd 5.x supports `attach --wsl` without an explicit distro.
             result = await RunCliAsync(args, ct, AttachTimeout);
         }
-        catch (UsbIpdTimeoutException)
+        catch (AppUsbIpdTimeoutException)
         {
             return (false, $"usbipd attach timed out after {(int)AttachTimeout.TotalSeconds} seconds.");
         }
@@ -84,7 +70,6 @@ public sealed class UsbIpdClient
         {
             try
             {
-                // Compatibility path for alternate/help-documented variants.
                 var (fallbackCode, fallbackStdout, fallbackStderr) = await RunCliAsync(
                     ["attach", "--busid", busId, "--wsl", "--distribution", distro],
                     ct,
@@ -95,7 +80,7 @@ public sealed class UsbIpdClient
 
                 return (false, $"{fallbackStderr}\n{fallbackStdout}".Trim());
             }
-            catch (UsbIpdTimeoutException)
+            catch (AppUsbIpdTimeoutException)
             {
                 return (false, $"usbipd attach timed out after {(int)AttachTimeout.TotalSeconds} seconds.");
             }
@@ -109,20 +94,6 @@ public sealed class UsbIpdClient
         var (code, _, stderr) = await RunCliAsync(["detach", "-b", busId], ct);
         return code == 0 ? (true, "") : (false, stderr ?? "detach failed");
     }
-
-    public async Task<(bool Ok, string Message)> UnbindAsync(string busId, CancellationToken ct)
-    {
-        var (code, _, stderr) = await RunCliAsync(["unbind", "-b", busId], ct);
-        return code == 0 ? (true, "") : (false, stderr ?? "unbind failed");
-    }
-
-    public async Task<(bool Ok, string Message)> UnbindByHardwareIdAsync(string hardwareId, CancellationToken ct)
-    {
-        var (code, _, stderr) = await RunCliAsync(["unbind", "-i", hardwareId], ct);
-        return code == 0 ? (true, "") : (false, stderr ?? "unbind failed");
-    }
-
-    // --- TCP raw protocol (protocol research path) ---
 
     public async Task<TcpClient> ConnectTcpAsync(CancellationToken ct)
     {
@@ -179,8 +150,6 @@ public sealed class UsbIpdClient
         return devices;
     }
 
-    // --- Internals ---
-
     private async Task<(int Code, string? Stdout, string? Stderr)> RunCliAsync(
         string[] args,
         CancellationToken ct,
@@ -232,7 +201,7 @@ public sealed class UsbIpdClient
                     // Best effort kill.
                 }
 
-                throw new UsbIpdTimeoutException($"usbipd {string.Join(' ', args)} timed out.");
+                throw new AppUsbIpdTimeoutException($"usbipd {string.Join(' ', args)} timed out.");
             }
         }
     }
@@ -241,11 +210,11 @@ public sealed class UsbIpdClient
     {
         var (code, stdout, stderr) = await RunCliAsync(["state"], ct);
         if (code != 0)
-            throw new UsbIpdException($"usbipd state failed: {stderr ?? stdout ?? "unknown error"}");
+            throw new AppUsbIpdException($"usbipd state failed: {stderr ?? stdout ?? "unknown error"}");
 
-        var (devices, error) = UsbIpdStateParser.Parse(stdout ?? string.Empty);
+        var (devices, error) = AppUsbIpdStateParser.Parse(stdout ?? string.Empty);
         if (error is not null)
-            throw new UsbIpdException(error);
+            throw new AppUsbIpdException(error);
 
         return devices;
     }
@@ -333,6 +302,6 @@ public sealed class UsbIpdClient
     }
 }
 
-public sealed class UsbIpdException(string message) : Exception(message);
+public sealed class AppUsbIpdException(string message) : Exception(message);
 
-public sealed class UsbIpdTimeoutException(string message) : Exception(message);
+public sealed class AppUsbIpdTimeoutException(string message) : Exception(message);

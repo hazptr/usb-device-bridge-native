@@ -10,14 +10,16 @@ public sealed class BridgeServiceClient : IDisposable
     public BridgeServiceClient(string serviceAddress)
     {
         _channel = GrpcChannel.ForAddress(serviceAddress);
+        Admin = new AdminService.AdminServiceClient(_channel);
         Device = new DeviceService.DeviceServiceClient(_channel);
-        AutoAttach = new AutoAttachService.AutoAttachServiceClient(_channel);
         Setup = new SetupService.SetupServiceClient(_channel);
     }
 
-    public DeviceService.DeviceServiceClient Device { get; }
+    /// <summary>Privileged operations: bind, unbind, firewall fix.</summary>
+    public AdminService.AdminServiceClient Admin { get; }
 
-    public AutoAttachService.AutoAttachServiceClient AutoAttach { get; }
+    /// <summary>Version info only; device RPCs return Unimplemented (moved to app).</summary>
+    public DeviceService.DeviceServiceClient Device { get; }
 
     public SetupService.SetupServiceClient Setup { get; }
 

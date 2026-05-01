@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -33,13 +35,15 @@ jobs:
       - name: Restore
         run: dotnet restore UsbDeviceBridgeNative.slnx
 
-      - name: Extract version from tag
+      - name: Compute version
         id: version
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          $version = $tag.TrimStart('v')
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          $v = & ./scripts/Get-Version.ps1
+          "ASSEMBLY_VERSION=$($v.AssemblyVersion)" >> $env:GITHUB_OUTPUT
+          "INFORMATIONAL_VERSION=$($v.InformationalVersion)" >> $env:GITHUB_OUTPUT
+          "PACKAGE_VERSION=$($v.PackageVersion)" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $($v.AssemblyVersion)  Informational: $($v.InformationalVersion)"
 
       - name: Run Tests
         timeout-minutes: 15
@@ -79,7 +83,8 @@ jobs:
           -c Release
           -r win-x64
           -p:SelfContained=false
-          -p:Version=${{ steps.version.outputs.VERSION }}
+          -p:Version=${{ steps.version.outputs.ASSEMBLY_VERSION }}
+          -p:InformationalVersion=${{ steps.version.outputs.INFORMATIONAL_VERSION }}
 
       - name: Publish App
         run: >
@@ -87,13 +92,15 @@ jobs:
           -c Release
           -r win-x64
           -p:SelfContained=false
-          -p:Version=${{ steps.version.outputs.VERSION }}
+          -p:Version=${{ steps.version.outputs.ASSEMBLY_VERSION }}
+          -p:InformationalVersion=${{ steps.version.outputs.INFORMATIONAL_VERSION }}
 
       - name: Build Installer
         run: >
           dotnet build src/UsbDeviceBridge.Installer/UsbDeviceBridge.Installer.wixproj
           -c Release
           --no-restore
+          -p:PackageVersion=${{ steps.version.outputs.PACKAGE_VERSION }}
 
       - name: Compute checksum
         id: checksum
@@ -108,7 +115,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: installer-${{ steps.version.outputs.VERSION }}
+          name: installer-${{ steps.version.outputs.ASSEMBLY_VERSION }}
           path: |
             ${{ steps.checksum.outputs.MSI_PATH }}
             src/UsbDeviceBridge.Installer/bin/**/*.sha256
@@ -116,7 +123,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: v${{ steps.version.outputs.VERSION }}
+          name: v${{ steps.version.outputs.ASSEMBLY_VERSION }}
           generate_release_notes: true
           files: |
             ${{ steps.checksum.outputs.MSI_PATH }}

@@ -15,29 +15,33 @@ public enum ToastKind { Success, Error, Warning, Info }
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly BridgeServiceClient _client;
+    private readonly LocalDeviceManager _deviceManager;
+    private readonly AppRememberedDeviceStore _rememberedStore;
+    private readonly LocalAutoAttachManager _autoAttachManager;
     private readonly NotificationService _notificationService;
     private readonly Func<Task<bool>>? _triggerServiceRestartAsync;
     private readonly Func<string>? _getFirewallFixPolicy;
     private readonly Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? _requestFirewallConsentAsync;
+    private readonly Func<ForceRetryRequest, Task<ForceRetryDecision>>? _requestForceRetryAsync;
+    private readonly Func<bool> _isWindowFocused;
+    private readonly Func<string, string, Models.NotificationSeverity, Task> _dispatchOsNotificationAsync;
     private readonly Dictionary<string, Usbdevicebridge.V1.Device> _streamDevices = new(StringComparer.Ordinal);
     private readonly HashSet<string> _busyIds = new();
-    private readonly HashSet<string> _pendingAutoFirewallConsent = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _distroSelections = new();
-    private readonly DistroLoader _distroLoader;
 
     private CancellationTokenSource? _streamCts;
     private Task? _streamTask;
+    private CancellationTokenSource? _heartbeatCts;
+    private Task? _heartbeatTask;
     private CancellationTokenSource? _feedbackCts;
     private bool? _isServiceConnected;
 
     private string _sortOrder = "State then name";
 
-    public event Action<string, string>? DeviceDistroSelectionChanged;
     public event Action? ToastShown;
     public event Action? ToastDismissRequested;
+    public event Action? ServiceReconnected;
 
     public ObservableCollection<DeviceViewModel> Devices { get; } = new();
-    public ObservableCollection<DistroOption> Distros { get; } = new();
 
     public NotificationService NotificationService => _notificationService;
 
@@ -58,16 +62,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel(
         BridgeServiceClient client,
+        LocalDeviceManager deviceManager,
+        AppRememberedDeviceStore rememberedStore,
+        LocalAutoAttachManager autoAttachManager,
         Func<Task<bool>>? triggerServiceRestartAsync = null,
         Func<string>? getFirewallFixPolicy = null,
-        Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? requestFirewallConsentAsync = null)
+        Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? requestFirewallConsentAsync = null,
+        Func<ForceRetryRequest, Task<ForceRetryDecision>>? requestForceRetryAsync = null,
+        Func<bool>? isWindowFocused = null,
+        Func<string, string, Models.NotificationSeverity, Task>? dispatchOsNotificationAsync = null)
     {
         _client = client;
+        _deviceManager = deviceManager;
+        _rememberedStore = rememberedStore;
+        _autoAttachManager = autoAttachManager;
         _triggerServiceRestartAsync = triggerServiceRestartAsync;
         _getFirewallFixPolicy = getFirewallFixPolicy;
         _requestFirewallConsentAsync = requestFirewallConsentAsync;
+        _requestForceRetryAsync = requestForceRetryAsync;
+        _isWindowFocused = isWindowFocused ?? (() => true);
+        _dispatchOsNotificationAsync = dispatchOsNotificationAsync ?? ((_, _, _) => Task.CompletedTask);
         _notificationService = new NotificationService();
-        _distroLoader = new DistroLoader(client, Distros);
+
+        _autoAttachManager.AttachingStateChanged += OnAutoAttachingStateChanged;
+        _autoAttachManager.AutoAttachFailed += OnAutoAttachFailed;
+        _autoAttachManager.AutoAttachNotification += OnAutoAttachNotification;
     }
 
     partial void OnIsAutoRefreshChanged(bool value)
@@ -124,18 +143,35 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Allow reconnect loop to recover naturally and switch panel state.
         var reconnecting = ServiceRecoveryTextFactory.Reconnecting();
         SetServiceRecoveryState(
             isVisible: true,
             reconnecting.Message,
             reconnecting.Details,
             actionsEnabled: false);
+
+        if (_streamTask is null || _streamTask.IsCompleted)
+            ServiceReconnected?.Invoke();
     }
 
     public void ClearFeedback()
     {
         FeedbackMessage = "";
+    }
+
+    public void ShowServiceRecoveryPromptForSetup(string? detailOverride = null)
+    {
+        var text = ServiceRecoveryTextFactory.ServiceNotRunning();
+        SetServiceRecoveryState(
+            isVisible: true,
+            text.Message,
+            string.IsNullOrWhiteSpace(detailOverride) ? text.Details : detailOverride,
+            actionsEnabled: false);
+    }
+
+    public void HideServiceRecoveryPromptForSetup()
+    {
+        SetServiceRecoveryState(isVisible: false, message: "", details: "", actionsEnabled: true);
     }
 
     public void SetSortOrder(string? sortOrder)
@@ -148,24 +184,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             UpdateDeviceList(_streamDevices.Values);
     }
 
-    public void InitializeDistroSelections(IReadOnlyDictionary<string, string>? selections)
-    {
-        _distroSelections.Clear();
-        if (selections is null)
-            return;
-
-        foreach (var (instanceId, distro) in selections)
-        {
-            if (string.IsNullOrWhiteSpace(instanceId) || string.IsNullOrWhiteSpace(distro))
-                continue;
-
-            _distroSelections[instanceId] = distro;
-        }
-    }
-
     public async Task InitializeAsync()
     {
-        await EnsureDistrosLoadedAsync(force: true);
         await RefreshAsync();
         if (IsAutoRefresh)
             StartDeviceStream();
@@ -174,28 +194,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task RefreshAsync()
     {
-        await EnsureDistrosLoadedAsync();
-
         try
         {
-            var response = await _client.Device.GetDevicesAsync(new GetDevicesRequest());
-            ReplaceStreamSnapshot(response.Devices);
-            UpdateDeviceList(response.Devices);
+            var devices = await _deviceManager.GetDevicesAsync(CancellationToken.None);
+            var remembered = _rememberedStore.Load();
+            ApplyRememberedState(devices, remembered);
+            ReplaceStreamSnapshot(devices);
+            UpdateDeviceList(devices);
 
-            TransitionToConnected();
-
-            var count = response.Devices.Count;
-            StatusText = count == 1 ? "1 device" : $"{count} devices";
+            StatusText = devices.Count == 1 ? "1 device" : $"{devices.Count} devices";
         }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        catch (Exception ex)
         {
-            var serviceNotRunning = ServiceRecoveryTextFactory.ServiceNotRunning();
-            TransitionToDisconnected(serviceNotRunning, "Service unavailable");
-            SetListState(loading: false, empty: false, hasItems: false);
-        }
-        catch (RpcException ex)
-        {
-            ShowError($"gRPC error: {ex.Status.Detail}");
+            ShowError($"Refresh failed: {ex.Message}");
         }
     }
 
@@ -205,38 +216,68 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (dev is null || !AreDeviceActionsEnabled || dev.IsBusy || string.IsNullOrEmpty(dev.BusId))
             return;
 
-        if (string.IsNullOrEmpty(dev.SelectedDistro))
-        {
-            ShowError("Select a WSL distro before connecting.");
-            return;
-        }
-
-        if (!_distroLoader.IsDistroRunning(dev.SelectedDistro))
-        {
-            ShowError($"WSL distro '{dev.SelectedDistro}' is not running.");
-            return;
-        }
-
         _busyIds.Add(dev.InstanceId);
         dev.IsBusy = true;
 
+        var didBind = false;
         try
         {
             var policy = NormalizeFirewallPolicy(_getFirewallFixPolicy?.Invoke());
+
+            // Device must be in "shared" state for attach; bind first if still "available".
+            if (string.Equals(dev.State, "available", StringComparison.OrdinalIgnoreCase))
+            {
+                var bindResult = await BindWithForceRetryIfNeededAsync(
+                    dev.Description,
+                    dev.InstanceId,
+                    dev.BusId,
+                    string.Empty,
+                    isAutoAttach: false,
+                    CancellationToken.None);
+
+                if (!bindResult.Ok)
+                {
+                    if (bindResult.UseWarning)
+                        ShowWarning(bindResult.Message);
+                    else
+                        ShowError(bindResult.Message);
+                    return;
+                }
+
+                didBind = true;
+            }
+
             var response = await AttachWithPolicyAsync(
                 dev.Description,
                 dev.InstanceId,
                 dev.BusId,
-                dev.SelectedDistro,
+                string.Empty,
                 policy,
                 isAutoAttach: false);
 
             if (!response.Ok)
-                ShowError(MapManualAttachError(dev.Description, response));
+            {
+                // Attach failed — unbind to avoid leaving device in "shared" state.
+                if (didBind)
+                    await TryUnbindAsync(dev.BusId, dev.HardwareId);
+
+                if (response.UseWarning)
+                    ShowWarning(response.Message);
+                else
+                    ShowError(MapManualAttachError(dev.Description, response));
+            }
         }
         catch (RpcException ex)
         {
+            if (didBind)
+                await TryUnbindAsync(dev.BusId, dev.HardwareId);
             ShowError($"Connect failed: {ex.Status.Detail}");
+        }
+        catch (Exception ex)
+        {
+            if (didBind)
+                await TryUnbindAsync(dev.BusId, dev.HardwareId);
+            ShowError($"Connect failed: {ex.Message}");
         }
         finally
         {
@@ -256,20 +297,38 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            var response = await _client.Device.DetachDeviceAsync(new DetachDeviceRequest
+            // Detach first (app context, no elevation needed).
+            var (detachOk, detachMsg) = await _deviceManager.DetachAsync(dev.BusId, CancellationToken.None);
+            if (!detachOk)
             {
-                BusId = dev.BusId,
-                InstanceId = dev.InstanceId,
-            });
+                ShowError($"Detach failed: {(detachMsg.Length > 0 ? detachMsg : "Detach failed.")}");
+                return;
+            }
 
-            if (response.Ok)
-                ShowOk($"Disconnected {dev.Description}.");
-            else
-                ShowError(response.Message.Length > 0 ? response.Message : "Detach failed.");
+            // Then unbind (service, requires elevation). BUG-0007 fix.
+            try
+            {
+                var unbindResp = await _client.Admin.UnbindDeviceAsync(
+                    new UnbindDeviceRequest { BusId = dev.BusId, HardwareId = dev.HardwareId },
+                    cancellationToken: CancellationToken.None);
+
+                if (unbindResp.Ok)
+                    ShowOk($"Disconnected {dev.Description}.");
+                else
+                    ShowWarning($"Detached but unbind failed: {unbindResp.Message}");
+            }
+            catch (RpcException rpcEx)
+            {
+                ShowWarning($"Detached but unbind RPC failed: {rpcEx.Status.Detail}");
+            }
         }
         catch (RpcException ex)
         {
             ShowError($"Disconnect failed: {ex.Status.Detail}");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Disconnect failed: {ex.Message}");
         }
         finally
         {
@@ -288,25 +347,39 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (dev.Remembered)
             {
-                var forget = await _client.AutoAttach.ForgetDeviceAsync(new ForgetDeviceRequest { InstanceId = dev.InstanceId });
-                if (forget.Ok)
-                    ShowInfo($"Forgot {dev.Description}.");
-                else
-                    ShowError(forget.Message.Length > 0 ? forget.Message : "Could not forget device.");
+                // Forget: release device if attached/shared, then unbind.
+                IReadOnlyList<Usbdevicebridge.V1.Device>? devices = null;
+                try { devices = await _deviceManager.GetDevicesAsync(CancellationToken.None); } catch { }
+
+                var device = devices?.FirstOrDefault(d =>
+                    string.Equals(d.InstanceId, dev.InstanceId, StringComparison.OrdinalIgnoreCase));
+
+                if (device is not null && device.State == "attached")
+                {
+                    var (detachOk, _) = await _deviceManager.DetachAsync(device.BusId, CancellationToken.None);
+                    if (!detachOk)
+                    {
+                        ShowError("Cannot forget: detach failed.");
+                        return;
+                    }
+                }
+
+                if (device is not null && device.State != "available")
+                {
+                    var unbindResp = await _client.Admin.UnbindDeviceAsync(
+                        new UnbindDeviceRequest { BusId = device.BusId, HardwareId = device.HardwareId },
+                        cancellationToken: CancellationToken.None);
+                    if (!unbindResp.Ok)
+                        ShowWarning("Unbind failed but device forgotten locally.");
+                }
+
+                _rememberedStore.Remove(dev.InstanceId);
+                ShowInfo($"Forgot {dev.Description}.");
             }
             else
             {
-                var distro = string.IsNullOrWhiteSpace(dev.SelectedDistro) ? string.Empty : dev.SelectedDistro;
-                var remember = await _client.AutoAttach.RememberDeviceAsync(new RememberDeviceRequest
-                {
-                    InstanceId = dev.InstanceId,
-                    PreferredDistro = distro,
-                });
-
-                if (remember.Ok)
-                    ShowInfo($"Remembered {dev.Description}{(string.IsNullOrWhiteSpace(distro) ? "" : $" for {distro}")}.");
-                else
-                    ShowError(remember.Message.Length > 0 ? remember.Message : "Could not remember device.");
+                _rememberedStore.AddOrUpdate(dev.InstanceId, string.Empty);
+                ShowInfo($"Remembered {dev.Description}.");
             }
 
             await RefreshAsync();
@@ -315,11 +388,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             ShowError($"Remember operation failed: {ex.Status.Detail}");
         }
-    }
-
-    private async Task EnsureDistrosLoadedAsync(bool force = false)
-    {
-        await _distroLoader.EnsureLoadedAsync(force);
+        catch (Exception ex)
+        {
+            ShowError($"Remember operation failed: {ex.Message}");
+        }
     }
 
     private void StartDeviceStream()
@@ -329,118 +401,237 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         _streamCts = new CancellationTokenSource();
         _streamTask = Task.Run(() => StreamLoopAsync(_streamCts.Token));
+        StartHeartbeatMonitor();
+        _autoAttachManager.Start();
     }
 
     private void StopDeviceStream()
     {
+        _autoAttachManager.Stop();
         _streamCts?.Cancel();
         _streamCts?.Dispose();
         _streamCts = null;
+
+        _heartbeatCts?.Cancel();
+        _heartbeatCts?.Dispose();
+        _heartbeatCts = null;
     }
 
-    private async Task StreamLoopAsync(CancellationToken token)
+    private void StartHeartbeatMonitor()
+    {
+        if (_heartbeatTask is not null && !_heartbeatTask.IsCompleted)
+            return;
+
+        _heartbeatCts = new CancellationTokenSource();
+        _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(_heartbeatCts.Token));
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             try
             {
-                await EnsureDistrosLoadedAsync();
-                using var stream = _client.Device.StreamDevices(new StreamDevicesRequest(), cancellationToken: token);
-
-                // Treat the connection as valid only after a successful RPC round-trip.
-                var snapshot = await _client.Device.GetDevicesAsync(
-                    new GetDevicesRequest(),
+                using var call = _client.Device.WatchHeartbeat(
+                    new HeartbeatRequest { IntervalMs = 2000 },
                     cancellationToken: token);
-                ReplaceStreamSnapshot(snapshot.Devices);
-                UpdateDeviceList(snapshot.Devices);
-                TransitionToConnected();
 
-                StatusText = snapshot.Devices.Count switch
+                while (await call.ResponseStream.MoveNext(token))
                 {
-                    1 => "1 device",
-                    var n => $"{n} devices",
-                };
+                    TransitionToConnected();
+                }
 
-                await foreach (var update in stream.ResponseStream.ReadAllAsync(token))
+                // Stream ended unexpectedly; treat as disconnected and retry.
+                var reconnecting = ServiceRecoveryTextFactory.Reconnecting();
+                TransitionToDisconnected(reconnecting, "Reconnecting...");
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded)
+            {
+                var serviceNotRunning = ServiceRecoveryTextFactory.ServiceNotRunning();
+                TransitionToDisconnected(serviceNotRunning, "Service unavailable");
+            }
+            catch
+            {
+                var reconnecting = ServiceRecoveryTextFactory.Reconnecting();
+                TransitionToDisconnected(reconnecting, "Reconnecting...");
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task StreamLoopAsync(CancellationToken token)
+    {
+        const int pollIntervalMs = 800;
+        var debounceWindow = TimeSpan.FromMilliseconds(1200);
+
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                // Initial snapshot.
+                var snapshot = await _deviceManager.GetDevicesAsync(token);
+                var remembered = _rememberedStore.Load();
+                ApplyRememberedState(snapshot, remembered);
+                ReplaceStreamSnapshot(snapshot);
+                UpdateDeviceList(snapshot);
+
+                StatusText = snapshot.Count == 1 ? "1 device" : $"{snapshot.Count} devices";
+
+                // Polling loop (replaces service-side StreamDevices).
+                var lastSnapshot = snapshot.ToDictionary(d => d.InstanceId, StringComparer.OrdinalIgnoreCase);
+                var pending = new Dictionary<string, Usbdevicebridge.V1.Device>(StringComparer.OrdinalIgnoreCase);
+                DateTimeOffset? pendingSince = null;
+
+                while (!token.IsCancellationRequested)
                 {
-                    // Notification events from the service (e.g. auto-attach firewall outcomes)
-                    // are forwarded as toasts and don't affect device state.
-                    if (string.Equals(update.EventType, "notification", StringComparison.OrdinalIgnoreCase))
+                    await Task.Delay(pollIntervalMs, token);
+
+                    var current = await _deviceManager.GetDevicesAsync(token);
+                    remembered = _rememberedStore.Load();
+                    ApplyRememberedState(current, remembered);
+
+                    // Detect additions/changes.
+                    foreach (var dev in current)
                     {
-                        if (string.Equals(update.NotificationCode, "auto_attach_firewall_consent_required", StringComparison.OrdinalIgnoreCase))
+                        if (!lastSnapshot.TryGetValue(dev.InstanceId, out var last)
+                            || last.State != dev.State
+                            || last.Remembered != dev.Remembered
+                            || last.Attaching != dev.Attaching)
                         {
-                            await HandleAutoAttachFirewallConsentAsync(update);
-                            continue;
+                            pending[dev.InstanceId] = dev;
                         }
-
-                        if (!string.IsNullOrWhiteSpace(update.NotificationMessage))
-                        {
-                            var (toastKind, severity) = update.NotificationSeverity?.ToLowerInvariant() switch
-                            {
-                                "error"   => (ToastKind.Error,   NotificationSeverity.Error),
-                                "info"    => (ToastKind.Info,    NotificationSeverity.Info),
-                                _         => (ToastKind.Warning, NotificationSeverity.Warning),
-                            };
-                            ShowToast(update.NotificationMessage, toastKind, severity);
-                        }
-                        continue;
                     }
 
-                    ApplyDeviceEvent(update);
-                    UpdateDeviceList(_streamDevices.Values);
-
-                    StatusText = _streamDevices.Count switch
+                    // Detect removals.
+                    foreach (var instanceId in lastSnapshot.Keys
+                        .Except(current.Select(d => d.InstanceId), StringComparer.OrdinalIgnoreCase))
                     {
-                        1 => "1 device",
-                        var n => $"{n} devices",
-                    };
+                        pending[instanceId] = new Usbdevicebridge.V1.Device { InstanceId = instanceId };
+                    }
+
+                    var now = DateTimeOffset.UtcNow;
+                    if (pending.Count > 0)
+                        pendingSince ??= now;
+
+                    var shouldFlush = pending.Count >= 25
+                        || (pendingSince.HasValue && now - pendingSince.Value >= debounceWindow);
+
+                    if (shouldFlush)
+                    {
+                        UpdateDeviceList(current);
+                        ReplaceStreamSnapshot(current);
+                        pending.Clear();
+                        pendingSince = null;
+                    }
+
+                    lastSnapshot = current.ToDictionary(d => d.InstanceId, StringComparer.OrdinalIgnoreCase);
+                    StatusText = current.Count == 1 ? "1 device" : $"{current.Count} devices";
                 }
             }
             catch (OperationCanceledException)
             {
                 break;
             }
-            catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+            catch (Exception ex)
             {
                 var reconnectingState = ServiceRecoveryTextFactory.Reconnecting();
-                TransitionToDisconnected(reconnectingState, "Service unavailable");
-
-                await Task.Delay(TimeSpan.FromSeconds(2), token);
-            }
-            catch (RpcException ex)
-            {
-                ShowError($"Stream error: {ex.Status.Detail}");
-                await Task.Delay(TimeSpan.FromSeconds(2), token);
-            }
-            catch
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), token);
+                TransitionToDisconnected(reconnectingState, "Reconnecting...");
+                ShowError($"Device polling error: {ex.Message}");
+                try { await Task.Delay(TimeSpan.FromSeconds(2), token); } catch { }
             }
         }
+    }
+
+    private void OnAutoAttachingStateChanged(string instanceId, bool isAttaching)
+    {
+        // Propagate attaching state from LocalAutoAttachManager into the device list.
+        var dispatcher = WpfApplication.Current?.Dispatcher;
+        if (dispatcher is null) return;
+
+        if (!dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => OnAutoAttachingStateChanged(instanceId, isAttaching));
+            return;
+        }
+
+        var vm = Devices.FirstOrDefault(d =>
+            string.Equals(d.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase));
+        if (vm is not null)
+            vm.IsAttaching = isAttaching;
+    }
+
+    private void OnAutoAttachFailed(string instanceId, string message)
+    {
+        var dispatcher = WpfApplication.Current?.Dispatcher;
+        if (dispatcher is null)
+            return;
+
+        if (!dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => OnAutoAttachFailed(instanceId, message));
+            return;
+        }
+
+        ShowWarning(message);
+    }
+
+    private void OnAutoAttachNotification(string message, NotificationSeverity severity)
+    {
+        var dispatcher = WpfApplication.Current?.Dispatcher;
+        if (dispatcher is null)
+            return;
+
+        if (!dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => OnAutoAttachNotification(message, severity));
+            return;
+        }
+
+        if (severity == NotificationSeverity.Error)
+            ShowError(message);
+        else if (severity == NotificationSeverity.Warning)
+            ShowWarning(message);
+        else
+            ShowInfo(message);
+    }
+
+    private void ApplyRememberedState(
+        IReadOnlyList<Usbdevicebridge.V1.Device> devices,
+        Dictionary<string, string> remembered)
+    {
+        foreach (var dev in devices)
+        {
+            dev.Remembered = !string.IsNullOrEmpty(dev.InstanceId)
+                && remembered.ContainsKey(dev.InstanceId);
+            dev.PreferredDistro = dev.Remembered
+                && remembered.TryGetValue(dev.InstanceId, out var distro) ? distro : "";
+        }
+    }
+
+    private void ReplaceStreamSnapshot(IReadOnlyList<Usbdevicebridge.V1.Device> devices)
+    {
+        _streamDevices.Clear();
+        foreach (var dev in devices)
+            _streamDevices[dev.InstanceId] = dev;
     }
 
     private void ReplaceStreamSnapshot(IReadOnlyCollection<Usbdevicebridge.V1.Device> devices)
     {
         _streamDevices.Clear();
         foreach (var dev in devices)
-        {
             _streamDevices[dev.InstanceId] = dev;
-        }
-    }
-
-    private void ApplyDeviceEvent(DeviceEvent deviceEvent)
-    {
-        if (deviceEvent.Device is null || string.IsNullOrWhiteSpace(deviceEvent.Device.InstanceId))
-            return;
-
-        var eventType = deviceEvent.EventType?.ToLowerInvariant();
-        if (eventType is "remove" or "deleted")
-        {
-            _streamDevices.Remove(deviceEvent.Device.InstanceId);
-            return;
-        }
-
-        _streamDevices[deviceEvent.Device.InstanceId] = deviceEvent.Device;
     }
 
     private void UpdateDeviceList(IReadOnlyCollection<Usbdevicebridge.V1.Device> devices)
@@ -453,8 +644,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             foreach (var d in sorted)
             {
-                _distroSelections.TryGetValue(d.InstanceId, out var selectedDistro);
-
                 var vm = new DeviceViewModel
                 {
                     InstanceId = d.InstanceId,
@@ -466,21 +655,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     PreferredDistro = d.PreferredDistro,
                     IsAttaching = d.Attaching,
                     IsBusy = _busyIds.Contains(d.InstanceId),
-                    DistroListReady = Distros.Count > 0,
-                    SelectedDistro = ChooseInitialDistro(d, selectedDistro),
-                };
-                vm.SelectedDistroIsRunning = _distroLoader.IsDistroRunning(vm.SelectedDistro);
-
-                vm.PropertyChanged += (_, e) =>
-                {
-                    if (e.PropertyName == nameof(DeviceViewModel.SelectedDistro)
-                        && !string.IsNullOrWhiteSpace(vm.InstanceId)
-                        && !string.IsNullOrWhiteSpace(vm.SelectedDistro))
-                    {
-                        vm.SelectedDistroIsRunning = _distroLoader.IsDistroRunning(vm.SelectedDistro);
-                        _distroSelections[vm.InstanceId] = vm.SelectedDistro;
-                        DeviceDistroSelectionChanged?.Invoke(vm.InstanceId, vm.SelectedDistro);
-                    }
+                    DistroListReady = true,
+                    SelectedDistro = string.Empty,
                 };
 
                 Devices.Add(vm);
@@ -488,17 +664,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             SetListState(loading: false, empty: Devices.Count == 0, hasItems: Devices.Count > 0);
         });
-    }
-
-    private string ChooseInitialDistro(Usbdevicebridge.V1.Device device, string? savedSelection)
-    {
-        if (!string.IsNullOrWhiteSpace(savedSelection) && Distros.Any(d => string.Equals(d.Name, savedSelection, StringComparison.OrdinalIgnoreCase)))
-            return savedSelection;
-
-        if (!string.IsNullOrWhiteSpace(device.PreferredDistro) && Distros.Any(d => string.Equals(d.Name, device.PreferredDistro, StringComparison.OrdinalIgnoreCase)))
-            return device.PreferredDistro;
-
-        return Distros.FirstOrDefault()?.Name ?? string.Empty;
     }
 
     private List<Usbdevicebridge.V1.Device> SortDevices(IEnumerable<Usbdevicebridge.V1.Device> devices)
@@ -528,6 +693,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (previous == false)
         {
             ShowInfo("Connected to the background service.");
+            ServiceReconnected?.Invoke();
         }
     }
 
@@ -544,9 +710,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         StatusText = status;
 
         if (previous == true)
-        {
             ShowError("Lost connection to the background service.");
-        }
     }
 
     private void ShowToast(string message, ToastKind kind, NotificationSeverity severity)
@@ -558,11 +722,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        FeedbackMessage = message;
+        // Strip whitespace from message to ensure clean display in notifications
+        var cleanMessage = message.Trim();
+
+        FeedbackMessage = cleanMessage;
         FeedbackKind = kind;
         ToastShown?.Invoke();
 
-        _notificationService.AddNotification(message, severity, "Main");
+        _notificationService.AddNotification(cleanMessage, severity, "Main");
+
+        // Dispatch OS notification when window is not focused
+        if (!_isWindowFocused())
+        {
+            _ = _dispatchOsNotificationAsync("USB Device Bridge", cleanMessage, severity);
+        }
 
         _feedbackCts?.Cancel();
         _feedbackCts = new CancellationTokenSource();
@@ -575,10 +748,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 await Task.Delay(2800, token);
                 await WpfApplication.Current.Dispatcher.InvokeAsync(() => ToastDismissRequested?.Invoke());
             }
-            catch (OperationCanceledException)
-            {
-                // Ignore cancellation.
-            }
+            catch (OperationCanceledException) { }
         }, token);
     }
 
@@ -587,6 +757,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ShowWarning(string message) => ShowToast(message, ToastKind.Warning, NotificationSeverity.Warning);
     private void ShowError(string message) => ShowToast(message, ToastKind.Error, NotificationSeverity.Error);
 
+    private async Task TryUnbindAsync(string busId, string hardwareId = "")
+    {
+        try
+        {
+            await _client.Admin.UnbindDeviceAsync(
+                new UnbindDeviceRequest { BusId = busId, HardwareId = hardwareId },
+                cancellationToken: CancellationToken.None);
+        }
+        catch
+        {
+            // Best-effort unbind; service may be unavailable.
+        }
+    }
+
     private static string NormalizeFirewallPolicy(string? value)
     {
         if (string.Equals(value, "always", StringComparison.OrdinalIgnoreCase)) return "always";
@@ -594,23 +778,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         return "ask";
     }
 
-    private async Task<AttachDeviceResponse> SendAttachAsync(
-        string instanceId,
-        string busId,
-        string distro,
-        string firewallPolicy)
-    {
-        return await _client.Device.AttachDeviceAsync(new AttachDeviceRequest
-        {
-            BusId = busId,
-            WslDistro = distro,
-            InstanceId = instanceId,
-            Remember = false,
-            FirewallFixPolicy = firewallPolicy,
-        });
-    }
-
-    private async Task<AttachDeviceResponse> AttachWithPolicyAsync(
+    private async Task<AttachAttemptResult> AttachWithPolicyAsync(
         string description,
         string instanceId,
         string busId,
@@ -618,43 +786,158 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         string policy,
         bool isAutoAttach)
     {
-        var response = await SendAttachAsync(instanceId, busId, distro, policy);
-        if (response.Ok)
+        var (ok, msg) = await _deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+
+        if (ok)
         {
             if (isAutoAttach)
-            {
-                var msg = response.FirewallFixApplied
-                    ? AttachToastMessages.AutoAttachFirewallFixApplied(instanceId)
-                    : $"Auto-attached {description} to {distro}.";
-                ShowInfo(msg);
-            }
+                ShowInfo($"Auto-attached {description}.");
             else
-            {
-                if (response.FirewallFixApplied)
-                    ShowOk(AttachToastMessages.FirewallFixAppliedAndSucceeded(description, distro));
-                else
-                    ShowOk($"Connected {description} to {distro}.");
-            }
-            return response;
+                ShowOk($"Connected {description}.");
+
+            return new AttachAttemptResult { Ok = true, Message = msg };
         }
 
-        if (response.FailReason != AttachFailReason.PolicyPrevented || policy != "ask" || _requestFirewallConsentAsync is null)
-            return response;
+        if (BusySignatureClassifier.IsBusyWithForceAvailable(msg))
+        {
+            var forceDecision = await RequestForceRetryDecisionAsync(
+                description,
+                instanceId,
+                busId,
+                distro,
+                ForceRetryStage.Bind,
+                isAutoAttach);
 
-        var decision = await _requestFirewallConsentAsync(new FirewallConsentRequest(
-            DeviceDescription: description,
-            InstanceId: instanceId,
-            BusId: busId,
-            WslDistro: distro,
-            IsAutoAttach: isAutoAttach));
+            if (!forceDecision.RetryWithForce)
+            {
+                return new AttachAttemptResult
+                {
+                    Ok = false,
+                    Message = AttachToastMessages.ForceRetryCancelled(description, ForceRetryStage.Bind),
+                    UseWarning = true,
+                };
+            }
 
-        if (!decision.AllowNow)
-            return response;
+            var forceBindResp = await _client.Admin.BindDeviceAsync(
+                new BindDeviceRequest { BusId = busId, Force = true },
+                cancellationToken: CancellationToken.None);
 
-        return await AttachWithPolicyAsync(description, instanceId, busId, distro, "always", isAutoAttach);
+            if (!forceBindResp.Ok)
+            {
+                return new AttachAttemptResult
+                {
+                    Ok = false,
+                    Message = AttachToastMessages.ForceRetryFailed(description, ForceRetryStage.Bind, forceBindResp.Message),
+                };
+            }
+
+            var (retryAttachOk, retryAttachMsg) = await _deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+            if (!retryAttachOk)
+            {
+                return new AttachAttemptResult
+                {
+                    Ok = false,
+                    Message = retryAttachMsg.Length > 0 ? retryAttachMsg : "Attach failed.",
+                };
+            }
+
+            if (isAutoAttach)
+                ShowInfo(AttachToastMessages.ForceRetrySucceededAutoAttach(instanceId, ForceRetryStage.Bind));
+            else
+                ShowInfo(AttachToastMessages.ForceRetrySucceeded(description, ForceRetryStage.Bind));
+
+            return new AttachAttemptResult { Ok = true };
+        }
+
+        // Detect firewall block and handle based on policy.
+        if (FirewallSignatureClassifier.IsFirewallBlock(msg))
+        {
+            if (policy == "never")
+            {
+                return new AttachAttemptResult
+                {
+                    Ok = false,
+                    Message = AttachToastMessages.PolicyPrevented(description),
+                    FailReason = AttachFailReason.PolicyPrevented,
+                };
+            }
+
+            if (policy == "ask")
+            {
+                if (_requestFirewallConsentAsync is null)
+                    return new AttachAttemptResult
+                    {
+                        Ok = false,
+                        Message = msg,
+                        FailReason = AttachFailReason.PolicyPrevented,
+                    };
+
+                var decision = await _requestFirewallConsentAsync(new FirewallConsentRequest(
+                    DeviceDescription: description,
+                    InstanceId: instanceId,
+                    BusId: busId,
+                    WslDistro: distro,
+                    IsAutoAttach: isAutoAttach));
+
+                if (!decision.AllowNow)
+                    return new AttachAttemptResult
+                    {
+                        Ok = false,
+                        Message = msg,
+                        FailReason = AttachFailReason.PolicyPrevented,
+                    };
+
+                // User approved; retry with "always".
+                return await AttachWithPolicyAsync(description, instanceId, busId, distro, "always", isAutoAttach);
+            }
+
+            // policy == "always": call service to apply the fix then retry.
+            try
+            {
+                var fixResp = await _client.Admin.ApplyFirewallFixAsync(
+                    new ApplyFirewallFixRequest(),
+                    cancellationToken: CancellationToken.None);
+
+                if (!fixResp.Ok)
+                    return new AttachAttemptResult
+                    {
+                        Ok = false,
+                        Message = $"Firewall fix failed: {fixResp.Message}",
+                        FailReason = AttachFailReason.FirewallFixFailed,
+                    };
+            }
+            catch (RpcException ex)
+            {
+                return new AttachAttemptResult
+                {
+                    Ok = false,
+                    Message = $"Firewall fix failed: {ex.Status.Detail}",
+                    FailReason = AttachFailReason.FirewallFixFailed,
+                };
+            }
+
+            // Retry after fix.
+            var (retryOk, retryMsg) = await _deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+            if (!retryOk)
+                return new AttachAttemptResult
+                {
+                    Ok = false,
+                    Message = retryMsg,
+                    FailReason = AttachFailReason.StillFailedAfterFix,
+                };
+
+            if (isAutoAttach)
+                ShowInfo(AttachToastMessages.AutoAttachFirewallFixApplied(instanceId));
+            else
+                ShowOk(AttachToastMessages.FirewallFixAppliedAndSucceeded(description, distro));
+
+            return new AttachAttemptResult { Ok = true, FirewallFixApplied = true };
+        }
+
+        return new AttachAttemptResult { Ok = false, Message = msg.Length > 0 ? msg : "Attach failed." };
     }
 
-    private string MapManualAttachError(string description, AttachDeviceResponse response)
+    private string MapManualAttachError(string description, AttachAttemptResult response)
         => response.FailReason switch
         {
             AttachFailReason.PolicyPrevented => AttachToastMessages.PolicyPrevented(description),
@@ -663,82 +946,99 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _ => response.Message.Length > 0 ? response.Message : "Attach failed.",
         };
 
-    private string MapAutoAttachError(string instanceId, AttachDeviceResponse response)
-        => response.FailReason switch
-        {
-            AttachFailReason.PolicyPrevented => AttachToastMessages.PolicyPreventedAutoAttach(instanceId),
-            AttachFailReason.FirewallFixFailed => AttachToastMessages.AutoAttachFirewallFixFailed(instanceId),
-            AttachFailReason.StillFailedAfterFix => AttachToastMessages.AutoAttachStillFailedAfterFix(instanceId),
-            _ => response.Message.Length > 0 ? response.Message : $"Auto-attach failed for device {instanceId}.",
-        };
-
-    private async Task HandleAutoAttachFirewallConsentAsync(DeviceEvent update)
+    private async Task<AttachAttemptResult> BindWithForceRetryIfNeededAsync(
+        string description,
+        string instanceId,
+        string busId,
+        string distro,
+        bool isAutoAttach,
+        CancellationToken ct)
     {
-        var instanceId = update.NotificationInstanceId?.Trim() ?? string.Empty;
-        var busId = update.NotificationBusId?.Trim() ?? string.Empty;
-        var distro = update.NotificationWslDistro?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(instanceId) || string.IsNullOrEmpty(busId) || string.IsNullOrEmpty(distro))
+        var bindResp = await _client.Admin.BindDeviceAsync(
+            new BindDeviceRequest { BusId = busId, Force = false },
+            cancellationToken: ct);
+        if (bindResp.Ok)
+            return new AttachAttemptResult { Ok = true };
+
+        if (!BusySignatureClassifier.IsBusyWithForceAvailable(bindResp.Message))
         {
-            if (!string.IsNullOrWhiteSpace(update.NotificationMessage))
-                ShowWarning(update.NotificationMessage);
-            return;
-        }
-
-        if (_pendingAutoFirewallConsent.Contains(instanceId))
-            return;
-
-        _pendingAutoFirewallConsent.Add(instanceId);
-        try
-        {
-            _streamDevices.TryGetValue(instanceId, out var device);
-            var description = device?.Description ?? instanceId;
-            var policy = NormalizeFirewallPolicy(_getFirewallFixPolicy?.Invoke());
-
-            if (policy == "never")
+            return new AttachAttemptResult
             {
-                ShowWarning(AttachToastMessages.PolicyPreventedAutoAttach(instanceId));
-                return;
-            }
+                Ok = false,
+                Message = $"Bind failed: {bindResp.Message}",
+            };
+        }
 
-            if (policy == "ask")
+        var forceDecision = await RequestForceRetryDecisionAsync(
+            description,
+            instanceId,
+            busId,
+            distro,
+            ForceRetryStage.Bind,
+            isAutoAttach);
+
+        if (!forceDecision.RetryWithForce)
+        {
+            return new AttachAttemptResult
             {
-                if (_requestFirewallConsentAsync is null)
-                {
-                    ShowWarning(AttachToastMessages.PolicyPreventedAutoAttach(instanceId));
-                    return;
-                }
+                Ok = false,
+                Message = AttachToastMessages.ForceRetryCancelled(description, ForceRetryStage.Bind),
+                UseWarning = true,
+            };
+        }
 
-                var consent = await _requestFirewallConsentAsync(new FirewallConsentRequest(
-                    DeviceDescription: description,
-                    InstanceId: instanceId,
-                    BusId: busId,
-                    WslDistro: distro,
-                    IsAutoAttach: true));
-                if (!consent.AllowNow)
-                {
-                    ShowWarning(AttachToastMessages.PolicyPreventedAutoAttach(instanceId));
-                    return;
-                }
-            }
+        var forceBindResp = await _client.Admin.BindDeviceAsync(
+            new BindDeviceRequest { BusId = busId, Force = true },
+            cancellationToken: ct);
+        if (forceBindResp.Ok)
+        {
+            ShowInfo(AttachToastMessages.ForceRetrySucceeded(description, ForceRetryStage.Bind));
+            return new AttachAttemptResult { Ok = true };
+        }
 
-            var retry = await AttachWithPolicyAsync(description, instanceId, busId, distro, "always", isAutoAttach: true);
-            if (!retry.Ok)
-                ShowError(MapAutoAttachError(instanceId, retry));
-        }
-        catch (RpcException ex)
+        return new AttachAttemptResult
         {
-            ShowError($"Auto-attach retry failed: {ex.Status.Detail}");
-        }
-        finally
-        {
-            _pendingAutoFirewallConsent.Remove(instanceId);
-        }
+            Ok = false,
+            Message = AttachToastMessages.ForceRetryFailed(description, ForceRetryStage.Bind, forceBindResp.Message),
+        };
+    }
+
+    private async Task<ForceRetryDecision> RequestForceRetryDecisionAsync(
+        string description,
+        string instanceId,
+        string busId,
+        string distro,
+        ForceRetryStage stage,
+        bool isAutoAttach)
+    {
+        if (_requestForceRetryAsync is null)
+            return new ForceRetryDecision(RetryWithForce: false);
+
+        return await _requestForceRetryAsync(new ForceRetryRequest(
+            DeviceDescription: description,
+            InstanceId: instanceId,
+            BusId: busId,
+            WslDistro: distro,
+            Stage: stage,
+            IsAutoAttach: isAutoAttach));
     }
 
     public void Dispose()
     {
+        _autoAttachManager.AttachingStateChanged -= OnAutoAttachingStateChanged;
+        _autoAttachManager.AutoAttachFailed -= OnAutoAttachFailed;
+        _autoAttachManager.AutoAttachNotification -= OnAutoAttachNotification;
         StopDeviceStream();
         _feedbackCts?.Cancel();
         _feedbackCts?.Dispose();
+    }
+
+    private sealed class AttachAttemptResult
+    {
+        public bool Ok { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public AttachFailReason FailReason { get; set; }
+        public bool FirewallFixApplied { get; set; }
+        public bool UseWarning { get; set; }
     }
 }

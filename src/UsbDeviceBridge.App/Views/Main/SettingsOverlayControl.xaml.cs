@@ -28,8 +28,6 @@ public partial class SettingsOverlayControl : UserControl
 
     public event TextChangedEventHandler? SearchTextChanged;
 
-    public event RoutedEventHandler? InstallUsbIpRequested;
-
     public event RoutedEventHandler? CheckUsbIpRequested;
 
     public event RoutedEventHandler? OpenUsbIpDocsRequested;
@@ -44,10 +42,7 @@ public partial class SettingsOverlayControl : UserControl
     private void SettingsSearchBox_OnTextChanged(object sender, TextChangedEventArgs e)
         => SearchTextChanged?.Invoke(sender, e);
 
-    private void InstallUsbIpStub_OnClick(object sender, RoutedEventArgs e)
-        => InstallUsbIpRequested?.Invoke(sender, e);
-
-    private void CheckUsbIpStub_OnClick(object sender, RoutedEventArgs e)
+    private void CheckUsbIp_OnClick(object sender, RoutedEventArgs e)
         => CheckUsbIpRequested?.Invoke(sender, e);
 
     private void OpenUsbIpDocs_OnClick(object sender, RoutedEventArgs e)

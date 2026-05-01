@@ -41,6 +41,8 @@ public partial class SetupOverlayControl : UserControl
 
     public Button InstallStartOverButton => SetupInstallStartOverButton;
 
+    public Button InstallUsbIpdButton => SetupInstallUsbIpdButton;
+
     public Button BackButton => SetupBackButton;
 
     public Button NextButton => SetupNextButton;

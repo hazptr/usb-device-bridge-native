@@ -37,6 +37,13 @@ $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $normalizedCommand = $Command.ToLowerInvariant()
 
+# Compute version from git describe so dev builds stamp the right informational version.
+$_v = & "$PSScriptRoot/Get-Version.ps1"
+$_versionRunArgs = @(
+    "--property:Version=$($_v.AssemblyVersion)"
+    "--property:InformationalVersion=$($_v.InformationalVersion)"
+)
+
 # Shared shutdown-flag path used by 'both' (non-elevated) to signal 'service' (elevated).
 # File-system writes are not blocked by UIPI, making this safe across integrity levels.
 $script:shutdownFlag = [IO.Path]::Combine($env:TEMP, 'usbbridge-dev-shutdown.flag')
@@ -173,7 +180,7 @@ if ($normalizedCommand -eq 'service') {
 
     Write-Host "[ADMIN] Starting UsbDeviceBridge.Service on http://127.0.0.1:5205 ..." -ForegroundColor Cyan
     $svcProc = Start-Process dotnet -PassThru -WorkingDirectory "$root" `
-        -ArgumentList @('run', '--project', "$root/src/UsbDeviceBridge.Service")
+        -ArgumentList (@('run', '--project', "$root/src/UsbDeviceBridge.Service") + $_versionRunArgs)
 
     Write-Host "Service running (PID $($svcProc.Id)). Close this window to force stop." -ForegroundColor DarkGray
 
@@ -214,7 +221,7 @@ if ($normalizedCommand -eq 'both' -or $normalizedCommand -eq 'proto') {
         )
 
         Write-Host "Launching UsbDeviceBridge.App..." -ForegroundColor Cyan
-        $appArgs = @('run', '--project', "$root/src/UsbDeviceBridge.App")
+        $appArgs = @('run', '--project', "$root/src/UsbDeviceBridge.App") + $_versionRunArgs
         if ($Rest.Count -gt 0) {
             $appArgs += @('--') + $Rest
         }
@@ -297,7 +304,7 @@ if ($normalizedCommand -eq 'app') {
     }
 
     Write-Host "Launching UsbDeviceBridge.App..." -ForegroundColor Cyan
-    $appArgs = @('run', '--project', "$root/src/UsbDeviceBridge.App")
+    $appArgs = @('run', '--project', "$root/src/UsbDeviceBridge.App") + $_versionRunArgs
     if ($Rest.Count -gt 0) {
         $appArgs += @('--') + $Rest
     }

@@ -1,6 +1,5 @@
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
-using UsbDeviceBridge.Service.Interop;
 using UsbDeviceBridge.Service.Services;
 using Usbdevicebridge.V1;
 
@@ -13,13 +12,7 @@ public sealed class SetupServiceImplTests
     public async Task CheckPrerequisites_ReturnsValidResponse()
     {
         // Arrange
-        var usbIpdClient = new UsbIpdClient();
-        var wslInterop = new WslInterop();
-        var service = new SetupServiceImpl(
-            NullLogger<SetupServiceImpl>.Instance,
-            usbIpdClient,
-            wslInterop
-        );
+        var service = new SetupServiceImpl(NullLogger<SetupServiceImpl>.Instance);
         var context = new TestServerCallContext();
 
         // Act
@@ -44,13 +37,7 @@ public sealed class SetupServiceImplTests
     public async Task CheckPrerequisites_PrerequisiteStatusIsAlwaysValid()
     {
         // Arrange
-        var usbIpdClient = new UsbIpdClient();
-        var wslInterop = new WslInterop();
-        var service = new SetupServiceImpl(
-            NullLogger<SetupServiceImpl>.Instance,
-            usbIpdClient,
-            wslInterop
-        );
+        var service = new SetupServiceImpl(NullLogger<SetupServiceImpl>.Instance);
         var context = new TestServerCallContext();
 
         // Act
@@ -87,13 +74,7 @@ public sealed class SetupServiceImplTests
     public async Task CheckPrerequisites_AllMetIndicatesPrerequisiteStatus()
     {
         // Arrange
-        var usbIpdClient = new UsbIpdClient();
-        var wslInterop = new WslInterop();
-        var service = new SetupServiceImpl(
-            NullLogger<SetupServiceImpl>.Instance,
-            usbIpdClient,
-            wslInterop
-        );
+        var service = new SetupServiceImpl(NullLogger<SetupServiceImpl>.Instance);
         var context = new TestServerCallContext();
 
         // Act
@@ -112,13 +93,7 @@ public sealed class SetupServiceImplTests
     public async Task RunSetup_WritesOutputMessagesToStream()
     {
         // Arrange
-        var usbIpdClient = new UsbIpdClient();
-        var wslInterop = new WslInterop();
-        var service = new SetupServiceImpl(
-            NullLogger<SetupServiceImpl>.Instance,
-            usbIpdClient,
-            wslInterop
-        );
+        var service = new SetupServiceImpl(NullLogger<SetupServiceImpl>.Instance);
         var context = new TestServerCallContext();
         var streamWriter = new TestAsyncStreamWriter<SetupOutputEvent>();
 
@@ -146,13 +121,7 @@ public sealed class SetupServiceImplTests
     public async Task RunSetup_WritesFinalStatusMessage()
     {
         // Arrange
-        var usbIpdClient = new UsbIpdClient();
-        var wslInterop = new WslInterop();
-        var service = new SetupServiceImpl(
-            NullLogger<SetupServiceImpl>.Instance,
-            usbIpdClient,
-            wslInterop
-        );
+        var service = new SetupServiceImpl(NullLogger<SetupServiceImpl>.Instance);
         var context = new TestServerCallContext();
         var streamWriter = new TestAsyncStreamWriter<SetupOutputEvent>();
 
@@ -177,13 +146,7 @@ public sealed class SetupServiceImplTests
     public async Task RunSetup_HandlesOutputForAllPrerequisites()
     {
         // Arrange
-        var usbIpdClient = new UsbIpdClient();
-        var wslInterop = new WslInterop();
-        var service = new SetupServiceImpl(
-            NullLogger<SetupServiceImpl>.Instance,
-            usbIpdClient,
-            wslInterop
-        );
+        var service = new SetupServiceImpl(NullLogger<SetupServiceImpl>.Instance);
         var context = new TestServerCallContext();
         var streamWriter = new TestAsyncStreamWriter<SetupOutputEvent>();
 

@@ -73,7 +73,6 @@ public sealed class AppSettingsService
             : "State then name";
         settings.ServiceStartupMode = ServiceStartupModes.Normalize(settings.ServiceStartupMode);
         settings.FirewallFixPolicy = FirewallFixPolicies.Normalize(settings.FirewallFixPolicy);
-        settings.DeviceDistroSelections ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         return settings;
     }
 }

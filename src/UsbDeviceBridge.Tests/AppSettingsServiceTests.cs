@@ -26,7 +26,6 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.True(settings.AutoRefreshEnabled);
         Assert.Equal("State then name", settings.SortOrder);
         Assert.Equal(ServiceStartupModes.Automatic, settings.ServiceStartupMode);
-        Assert.Empty(settings.DeviceDistroSelections);
     }
 
     [Fact]
@@ -46,11 +45,8 @@ public sealed class AppSettingsServiceTests : IDisposable
             StartWithWindows = true,
             SortOrder = "Name",
             ServiceStartupMode = ServiceStartupModes.OnDemand,
-            DeviceDistroSelections = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["USB\\VID_0A12&PID_0001"] = "Ubuntu",
-                ["USB\\VID_2C97&PID_0001"] = "Debian",
-            },
+            WindowsNotificationsEnabled = false,
+            DetachOnExit = false,
         };
 
         service.Save(expected);
@@ -65,8 +61,8 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.True(loaded.StartWithWindows);
         Assert.Equal("Name", loaded.SortOrder);
         Assert.Equal(ServiceStartupModes.OnDemand, loaded.ServiceStartupMode);
-        Assert.Equal("Ubuntu", loaded.DeviceDistroSelections["USB\\VID_0A12&PID_0001"]);
-        Assert.Equal("Debian", loaded.DeviceDistroSelections["USB\\VID_2C97&PID_0001"]);
+        Assert.False(loaded.WindowsNotificationsEnabled);
+        Assert.False(loaded.DetachOnExit);
     }
 
     [Fact]
@@ -79,7 +75,6 @@ public sealed class AppSettingsServiceTests : IDisposable
             Theme = "invalid",
             SortOrder = "unknown",
             ServiceStartupMode = "custom",
-            DeviceDistroSelections = (Dictionary<string, string>?)null,
         });
 
         File.WriteAllText(path, json);
@@ -90,8 +85,6 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal("Dark", loaded.Theme);
         Assert.Equal("State then name", loaded.SortOrder);
         Assert.Equal(ServiceStartupModes.Automatic, loaded.ServiceStartupMode);
-        Assert.NotNull(loaded.DeviceDistroSelections);
-        Assert.Empty(loaded.DeviceDistroSelections);
     }
 
     [Fact]
@@ -142,6 +135,52 @@ public sealed class AppSettingsServiceTests : IDisposable
         var loaded = service.Load();
 
         Assert.Equal(FirewallFixPolicies.Ask, loaded.FirewallFixPolicy);
+    }
+
+    [Fact]
+    public void Load_DefaultsWindowsNotificationsEnabled_ToTrue()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var service = new AppSettingsService(path);
+
+        var loaded = service.Load();
+
+        Assert.True(loaded.WindowsNotificationsEnabled);
+    }
+
+    [Fact]
+    public void Save_AndLoad_RoundTripsWindowsNotificationsEnabled()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var service = new AppSettingsService(path);
+
+        service.Save(new AppSettings { WindowsNotificationsEnabled = false });
+        var loaded = service.Load();
+
+        Assert.False(loaded.WindowsNotificationsEnabled);
+    }
+
+    [Fact]
+    public void Load_DefaultsDetachOnExit_ToTrue()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var service = new AppSettingsService(path);
+
+        var loaded = service.Load();
+
+        Assert.True(loaded.DetachOnExit);
+    }
+
+    [Fact]
+    public void Save_AndLoad_RoundTripsDetachOnExit()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var service = new AppSettingsService(path);
+
+        service.Save(new AppSettings { DetachOnExit = false });
+        var loaded = service.Load();
+
+        Assert.False(loaded.DetachOnExit);
     }
 
     public void Dispose()

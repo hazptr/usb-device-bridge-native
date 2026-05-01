@@ -4,7 +4,7 @@ using Usbdevicebridge.V1;
 namespace UsbDeviceBridge.App.Services;
 
 /// <summary>
-/// Provides a command-line test harness for the service.
+/// Developer test harness for the service and app-side operations.
 /// Invoked when the app is launched with arguments (e.g. from dev.ps1).
 /// </summary>
 public static class CliRunner
@@ -31,34 +31,34 @@ public static class CliRunner
         var cmdArgs = argList.Skip(1).ToArray();
 
         using var client = new BridgeServiceClient(serviceAddress);
+        var usbIpdClient = new UsbIpdClient();
+        var deviceManager = new LocalDeviceManager(usbIpdClient);
+        var rememberedStore = new AppRememberedDeviceStore();
 
         try
         {
             switch (command)
             {
                 case "devices" or "d":
-                    await DevicesCommand(client);
+                    await DevicesCommand(deviceManager, rememberedStore);
                     break;
                 case "distros":
-                    await DistrosCommand(client);
+                    await DistrosCommand();
                     break;
                 case "attach" or "a":
-                    await AttachCommand(client, cmdArgs);
+                    await AttachCommand(client, deviceManager, cmdArgs);
                     break;
                 case "detach" or "x":
-                    await DetachCommand(client, cmdArgs);
+                    await DetachCommand(client, deviceManager, cmdArgs);
                     break;
                 case "remember" or "r":
-                    await RememberCommand(client, cmdArgs);
+                    RememberCommand(rememberedStore, cmdArgs);
                     break;
                 case "forget" or "f":
-                    await ForgetCommand(client, cmdArgs);
+                    ForgetCommand(rememberedStore, cmdArgs);
                     break;
                 case "remembered" or "rm":
-                    await RememberedCommand(client);
-                    break;
-                case "stream" or "s":
-                    await StreamCommand(client);
+                    RememberedCommand(rememberedStore);
                     break;
                 default:
                     PrintHelp(serviceAddress);
@@ -73,10 +73,14 @@ public static class CliRunner
         }
     }
 
-    private static async Task DevicesCommand(BridgeServiceClient client)
+    private static async Task DevicesCommand(
+        LocalDeviceManager deviceManager,
+        AppRememberedDeviceStore rememberedStore)
     {
-        var resp = await client.Device.GetDevicesAsync(new GetDevicesRequest());
-        if (resp.Devices.Count == 0)
+        var devices = await deviceManager.GetDevicesAsync(CancellationToken.None);
+        var remembered = rememberedStore.Load();
+
+        if (devices.Count == 0)
         {
             Console.WriteLine("No USB devices found.");
             return;
@@ -84,68 +88,67 @@ public static class CliRunner
 
         Console.WriteLine($"{"BUS-ID",-8} {"STATE",-10} {"REM",-5} {"VID:PID",-10} DESCRIPTION");
         Console.WriteLine(new string('-', 72));
-        foreach (var d in resp.Devices)
+        foreach (var d in devices)
         {
             var busId = string.IsNullOrEmpty(d.BusId) ? "-" : d.BusId;
-            var rem = d.Remembered ? $"yes ({d.PreferredDistro})" : "no";
+            var isRemembered = !string.IsNullOrEmpty(d.InstanceId) && remembered.ContainsKey(d.InstanceId);
+            var rem = isRemembered ? $"yes ({remembered.GetValueOrDefault(d.InstanceId, "")})" : "no";
             Console.WriteLine($"{busId,-8} {d.State,-10} {rem,-22} {d.HardwareId,-10} {d.Description}");
         }
     }
 
-    private static async Task DistrosCommand(BridgeServiceClient client)
+    private static async Task DistrosCommand()
     {
-        var resp = await client.Device.QueryWslDistrosAsync(new QueryWslDistrosRequest());
-        if (resp.DistroStatuses.Count == 0 && resp.Distros.Count == 0)
+        var localWsl = new WslUserSpaceInterop();
+        var distros = await localWsl.QueryDistrosAsync();
+        if (distros.Count == 0)
         {
             Console.WriteLine("No WSL distros found (is WSL installed?).");
             return;
         }
-        Console.WriteLine("WSL Distros:");
-        if (resp.DistroStatuses.Count > 0)
-        {
-            foreach (var d in resp.DistroStatuses)
-            {
-                var state = d.IsRunning ? "running" : "offline";
-                Console.WriteLine($"  {d.Name} ({state})");
-            }
-            return;
-        }
 
-        foreach (var d in resp.Distros)
-            Console.WriteLine($"  {d}");
+        Console.WriteLine("WSL Distros:");
+        foreach (var distro in distros)
+        {
+            var state = distro.IsRunning ? "running" : "offline";
+            Console.WriteLine($"  {distro.Name} ({state})");
+        }
     }
 
-    private static async Task AttachCommand(BridgeServiceClient client, string[] args)
+    private static async Task AttachCommand(
+        BridgeServiceClient client,
+        LocalDeviceManager deviceManager,
+        string[] args)
     {
-        if (args.Length < 2)
+        if (args.Length < 1)
         {
-            Console.Error.WriteLine("Usage: attach <bus-id> <distro> [--remember <instance-id>]");
+            Console.Error.WriteLine("Usage: attach <bus-id> [<distro>]");
             Environment.Exit(1);
         }
 
         var busId = args[0];
-        var distro = args[1];
-        var rememberIdx = Array.IndexOf(args, "--remember");
-        var instanceId = rememberIdx >= 0 && rememberIdx + 1 < args.Length
-            ? args[rememberIdx + 1]
-            : "";
-        var remember = rememberIdx >= 0;
+        var distro = args.ElementAtOrDefault(1) ?? "";
 
-        Console.WriteLine($"Attaching {busId} → {distro}{(remember ? " (will remember)" : "")}...");
+        Console.WriteLine($"Attaching {busId} → {(string.IsNullOrEmpty(distro) ? "<default distro>" : distro)}...");
 
-        var resp = await client.Device.AttachDeviceAsync(new AttachDeviceRequest
+        // Bind via service first (requires elevation).
+        var bindResp = await client.Admin.BindDeviceAsync(new BindDeviceRequest { BusId = busId });
+        if (!bindResp.Ok)
         {
-            BusId = busId,
-            WslDistro = distro,
-            InstanceId = instanceId,
-            Remember = remember,
-        });
+            Console.WriteLine($"Bind FAILED: {bindResp.Message}");
+            Environment.Exit(1);
+        }
 
-        Console.WriteLine(resp.Ok ? $"OK: {resp.Message}" : $"FAILED: {resp.Message}");
-        if (!resp.Ok) Environment.Exit(1);
+        // Attach via app (user context, sees WSL distros).
+        var (ok, msg) = await deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+        Console.WriteLine(ok ? "OK" : $"Attach FAILED: {msg}");
+        if (!ok) Environment.Exit(1);
     }
 
-    private static async Task DetachCommand(BridgeServiceClient client, string[] args)
+    private static async Task DetachCommand(
+        BridgeServiceClient client,
+        LocalDeviceManager deviceManager,
+        string[] args)
     {
         if (args.Length < 1)
         {
@@ -153,15 +156,21 @@ public static class CliRunner
             Environment.Exit(1);
         }
 
-        Console.WriteLine($"Detaching {args[0]}...");
-        var resp = await client.Device.DetachDeviceAsync(
-            new DetachDeviceRequest { BusId = args[0] }
-        );
-        Console.WriteLine(resp.Ok ? "OK" : $"FAILED: {resp.Message}");
-        if (!resp.Ok) Environment.Exit(1);
+        var busId = args[0];
+        Console.WriteLine($"Detaching {busId}...");
+
+        var (detachOk, detachMsg) = await deviceManager.DetachAsync(busId, CancellationToken.None);
+        if (!detachOk)
+        {
+            Console.WriteLine($"Detach FAILED: {detachMsg}");
+            Environment.Exit(1);
+        }
+
+        var unbindResp = await client.Admin.UnbindDeviceAsync(new UnbindDeviceRequest { BusId = busId });
+        Console.WriteLine(unbindResp.Ok ? "OK" : $"Detached but unbind failed: {unbindResp.Message}");
     }
 
-    private static async Task RememberCommand(BridgeServiceClient client, string[] args)
+    private static void RememberCommand(AppRememberedDeviceStore store, string[] args)
     {
         if (args.Length < 2)
         {
@@ -169,15 +178,11 @@ public static class CliRunner
             Environment.Exit(1);
         }
 
-        var resp = await client.AutoAttach.RememberDeviceAsync(new RememberDeviceRequest
-        {
-            InstanceId = args[0],
-            PreferredDistro = args[1],
-        });
-        Console.WriteLine(resp.Ok ? $"OK: {resp.Message}" : $"FAILED: {resp.Message}");
+        store.AddOrUpdate(args[0], args[1]);
+        Console.WriteLine($"OK: Remembered {args[0]} → {args[1]}");
     }
 
-    private static async Task ForgetCommand(BridgeServiceClient client, string[] args)
+    private static void ForgetCommand(AppRememberedDeviceStore store, string[] args)
     {
         if (args.Length < 1)
         {
@@ -185,18 +190,14 @@ public static class CliRunner
             Environment.Exit(1);
         }
 
-        var resp = await client.AutoAttach.ForgetDeviceAsync(
-            new ForgetDeviceRequest { InstanceId = args[0] }
-        );
-        Console.WriteLine(resp.Ok ? $"OK: {resp.Message}" : $"FAILED: {resp.Message}");
+        var removed = store.Remove(args[0]);
+        Console.WriteLine(removed ? $"OK: Forgot {args[0]}" : $"Not found: {args[0]}");
     }
 
-    private static async Task RememberedCommand(BridgeServiceClient client)
+    private static void RememberedCommand(AppRememberedDeviceStore store)
     {
-        var resp = await client.AutoAttach.GetRememberedDevicesAsync(
-            new GetRememberedDevicesRequest()
-        );
-        if (resp.Devices.Count == 0)
+        var remembered = store.Load();
+        if (remembered.Count == 0)
         {
             Console.WriteLine("No remembered devices.");
             return;
@@ -204,34 +205,8 @@ public static class CliRunner
 
         Console.WriteLine($"{"INSTANCE-ID",-60} DISTRO");
         Console.WriteLine(new string('-', 80));
-        foreach (var d in resp.Devices)
-            Console.WriteLine($"{d.InstanceId,-60} {d.PreferredDistro}");
-    }
-
-    private static async Task StreamCommand(BridgeServiceClient client)
-    {
-        Console.WriteLine("Streaming device events (Ctrl+C to stop)...");
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-
-        using var call = client.Device.StreamDevices(
-            new StreamDevicesRequest(),
-            cancellationToken: cts.Token
-        );
-
-        try
-        {
-            await foreach (var evt in call.ResponseStream.ReadAllAsync(cts.Token))
-            {
-                var d = evt.Device;
-                var busId = string.IsNullOrEmpty(d.BusId) ? "-" : d.BusId;
-                Console.WriteLine($"[{evt.EventType,-8}] {busId,-8} {d.State,-10} {d.Description}");
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled) { }
-
-        Console.WriteLine("Stream ended.");
+        foreach (var (instanceId, distro) in remembered)
+            Console.WriteLine($"{instanceId,-60} {distro}");
     }
 
     private static void PrintHelp(string serviceAddress)
@@ -244,15 +219,13 @@ public static class CliRunner
         Console.WriteLine("  ./scripts/dev.ps1 <command>");
         Console.WriteLine();
         Console.WriteLine("COMMANDS");
-        Console.WriteLine("  devices (d)                    List all USB devices");
-        Console.WriteLine("  distros                        List WSL distros");
-        Console.WriteLine("  attach (a) <bus-id> <distro>   Attach device to WSL");
-        Console.WriteLine("    [--remember <instance-id>]   Also remember for auto-attach");
-        Console.WriteLine("  detach (x) <bus-id>            Detach device from WSL");
+        Console.WriteLine("  devices (d)                       List all USB devices");
+        Console.WriteLine("  distros                           List WSL distros");
+        Console.WriteLine("  attach (a) <bus-id> [<distro>]    Bind + attach device to WSL");
+        Console.WriteLine("  detach (x) <bus-id>               Detach + unbind device");
         Console.WriteLine("  remember (r) <instance-id> <distro>  Remember for auto-attach");
-        Console.WriteLine("  forget (f) <instance-id>       Forget device");
-        Console.WriteLine("  remembered (rm)                List remembered devices");
-        Console.WriteLine("  stream (s)                     Stream device change events");
+        Console.WriteLine("  forget (f) <instance-id>          Forget device");
+        Console.WriteLine("  remembered (rm)                   List remembered devices");
         Console.WriteLine();
         Console.WriteLine("  No args → open the UI window");
     }

@@ -16,8 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="bind.proto" GrpcServices="Both" />
     <Protobuf Include="device.proto" GrpcServices="Both" />
-    <Protobuf Include="auto_attach.proto" GrpcServices="Both" />
     <Protobuf Include="setup.proto" GrpcServices="Both" />
   </ItemGroup>
 

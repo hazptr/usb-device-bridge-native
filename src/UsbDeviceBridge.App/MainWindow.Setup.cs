@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Windows;
 using System.Windows.Media.Animation;
 using Grpc.Core;
@@ -52,6 +53,8 @@ public partial class MainWindow
 
     private Button SetupInstallStartOverButton => SetupOverlay.InstallStartOverButton;
 
+    private Button SetupInstallUsbIpdButton => SetupOverlay.InstallUsbIpdButton;
+
     private Button SetupBackButton => SetupOverlay.BackButton;
 
     private Button SetupNextButton => SetupOverlay.NextButton;
@@ -102,6 +105,7 @@ public partial class MainWindow
         SetupInstallPackagesButton.Click -= SetupInstallPackages_OnClick;
         SetupInstallStopButton.Click -= SetupInstallStop_OnClick;
         SetupInstallStartOverButton.Click -= SetupInstallStartOver_OnClick;
+        SetupInstallUsbIpdButton.Click -= SetupInstallUsbIpd_OnClick;
 
         SetupDarkCard.Click += SetupThemeCard_OnClick;
         SetupLightCard.Click += SetupThemeCard_OnClick;
@@ -110,6 +114,15 @@ public partial class MainWindow
         SetupInstallPackagesButton.Click += SetupInstallPackages_OnClick;
         SetupInstallStopButton.Click += SetupInstallStop_OnClick;
         SetupInstallStartOverButton.Click += SetupInstallStartOver_OnClick;
+        SetupInstallUsbIpdButton.Click += SetupInstallUsbIpd_OnClick;
+    }
+
+    private void OnServiceReconnectedDuringSetup()
+    {
+        // If setup is on the prerequisites step and the recovery panel is showing,
+        // the service just came back — auto-retry the check without requiring user action.
+        if (_setupStepIndex == 1 && SetupOverlay.Visibility == Visibility.Visible)
+            _ = PopulatePrerequisitesStatusAsync();
     }
 
     private void ShowSetupOverlay()
@@ -117,6 +130,7 @@ public partial class MainWindow
         _setupStepIndex = 0;
         _setupSelectedTheme = "Dark";
         _setupPrerequisitesVerifiedInstalled = false;
+        _vm.StatusText = "Setup in progress";
         UpdateSetupStepUi();
         ApplySetupCardPreviews();
         ApplySetupThemeCardSelection();
@@ -256,28 +270,7 @@ public partial class MainWindow
         };
         SetupDistroCheckboxes.Children.Add(loadingText);
 
-        IReadOnlyList<DistroInfo> distros;
-        try
-        {
-            var deadline = DateTime.UtcNow.AddSeconds(8);
-            var response = await _client.Setup.QueryDistrosAsync(
-                new QueryDistrosRequest(),
-                deadline: deadline);
-            distros = response.Distros;
-        }
-        catch (RpcException ex)
-        {
-            var isDown = ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
-            SetupDistroCheckboxes.Children.Clear();
-            SetupDistroCheckboxes.Children.Add(
-                CreateServiceErrorPanel(
-                    isDown
-                        ? "The background service isn't running."
-                        : $"Service error: {ex.Status.Detail}",
-                    isDown,
-                    () => PopulateDistroCheckboxesAsync()));
-            return;
-        }
+        var distros = await _wslUserSpaceInterop.QueryDistrosAsync();
 
         SetupDistroCheckboxes.Children.Clear();
 
@@ -371,29 +364,68 @@ public partial class MainWindow
         bool hadErrors = false;
         try
         {
-            var request = new ConfigureDistrosRequest();
-            request.DistroNames.AddRange(distros);
-
-            using var call = _client.Setup.ConfigureDistros(request);
-            await foreach (var evt in call.ResponseStream.ReadAllAsync(ct))
+            var packages = new[] { "usbutils", "linux-tools-generic", "hwdata" };
+            foreach (var distroName in distros)
             {
-                if (evt.IsError && evt.ExitCode != 0)
+                AppendInstallLog($"\n>>> Configuring {distroName}...", false);
+                AppendInstallLog("  $ apt-get update", false);
+
+                var updateExitCode = await _wslUserSpaceInterop.RunCommandInDistroStreamingAsync(
+                    distroName,
+                    "apt-get update",
+                    (line, isError) =>
+                    {
+                        AppendInstallLog(line, isError);
+                        return Task.CompletedTask;
+                    },
+                    ct,
+                    user: "root"
+                );
+
+                if (updateExitCode != 0)
+                    AppendInstallLog($"  ! apt-get update exited with code {updateExitCode}", false);
+
+                var packageList = string.Join(" ", packages);
+                AppendInstallLog($"\n  $ apt-get install -y {packageList}", false);
+
+                var installExitCode = await _wslUserSpaceInterop.RunCommandInDistroStreamingAsync(
+                    distroName,
+                    $"apt-get install -y {packageList}",
+                    (line, isError) =>
+                    {
+                        AppendInstallLog(line, isError);
+                        return Task.CompletedTask;
+                    },
+                    ct,
+                    user: "root"
+                );
+
+                if (installExitCode != 0)
+                {
                     hadErrors = true;
-                AppendInstallLog(evt.OutputLine, evt.IsError);
+                    AppendInstallLog($"\n  x Package installation failed (exit code {installExitCode})", true);
+                }
+                else
+                {
+                    AppendInstallLog($"\n  ok Packages installed: {packageList}", false);
+                }
             }
+
             success = !hadErrors;
+            AppendInstallLog(
+                success
+                    ? "\nok All distros configured successfully."
+                    : "\nx Configuration finished with errors. Review the output above.",
+                isError: !success
+            );
         }
         catch (OperationCanceledException)
         {
             AppendInstallLog("\n— Installation stopped —", false);
         }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+        catch (Exception ex)
         {
-            AppendInstallLog("\n— Installation stopped —", false);
-        }
-        catch (RpcException ex)
-        {
-            AppendInstallLog($"\n✗ Error: {ex.Status.Detail}", true);
+            AppendInstallLog($"\n✗ Error: {ex.Message}", true);
         }
         finally
         {
@@ -438,6 +470,87 @@ public partial class MainWindow
         SetupBackButton.IsEnabled = true;
     }
 
+    private async void SetupInstallUsbIpd_OnClick(object sender, RoutedEventArgs e)
+    {
+        var originalStatus = _vm.StatusText;
+        SetupInstallUsbIpdButton.IsEnabled = false;
+        SetupInstallUsbIpdButton.Content = "Installing...";
+        _vm.StatusText = "Installing usbipd-win via winget";
+
+        try
+        {
+            var (success, message) = await InstallUsbIpdViaWingetAsync();
+            ShowThemedNoticeDialog(
+                success ? "usbipd-win install" : "usbipd-win install failed",
+                message,
+                "OK");
+
+            await PopulatePrerequisitesStatusAsync();
+        }
+        finally
+        {
+            SetupInstallUsbIpdButton.Content = "Install usbipd-win (winget)";
+            SetupInstallUsbIpdButton.IsEnabled = true;
+            _vm.StatusText = originalStatus;
+        }
+    }
+
+    private static async Task<(bool Success, string Message)> InstallUsbIpdViaWingetAsync()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "winget",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+
+            psi.ArgumentList.Add("install");
+            psi.ArgumentList.Add("--id");
+            psi.ArgumentList.Add("dorssel.usbipd-win");
+            psi.ArgumentList.Add("--exact");
+            psi.ArgumentList.Add("--accept-package-agreements");
+            psi.ArgumentList.Add("--accept-source-agreements");
+
+            using var process = Process.Start(psi);
+            if (process is null)
+            {
+                return (false, "Failed to start winget.");
+            }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            var stdout = (await stdoutTask).Trim();
+            var stderr = (await stderrTask).Trim();
+
+            if (process.ExitCode == 0)
+            {
+                return (true, "usbipd-win installation completed successfully.");
+            }
+
+            var details = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+            if (string.IsNullOrWhiteSpace(details))
+                details = "winget returned a non-zero exit code.";
+
+            var tail = string.Join(
+                Environment.NewLine,
+                details
+                    .Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries)
+                    .TakeLast(8));
+
+            return (false, $"winget install failed (exit code {process.ExitCode}).{Environment.NewLine}{Environment.NewLine}{tail}");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Unable to run winget install. {ex.Message}");
+        }
+    }
+
     private async Task PopulatePrerequisitesStatusAsync()
     {
         SetupPrerequisitesStatus.Children.Clear();
@@ -470,18 +583,29 @@ public partial class MainWindow
             var isDown = ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
             _setupPrerequisitesVerifiedInstalled = false;
             SetupPrerequisitesStatus.Children.Clear();
-            SetupPrerequisitesStatus.Children.Add(
-                CreateServiceErrorPanel(
-                    isDown
-                        ? "The background service isn't running."
-                        : $"Service error: {ex.Status.Detail}",
-                    isDown,
-                    () => PopulatePrerequisitesStatusAsync()));
+            if (isDown)
+            {
+                _vm.ShowServiceRecoveryPromptForSetup(
+                    "Setup can't continue until the background service is running. Start Service to continue prerequisite checks.");
+            }
+            else
+            {
+                _vm.ShowServiceRecoveryPromptForSetup($"Service error: {ex.Status.Detail}");
+            }
             SetupNextButton.IsEnabled = true;
             return;
         }
 
+        _vm.HideServiceRecoveryPromptForSetup();
         SetupPrerequisitesStatus.Children.Clear();
+
+        var usbipdMissing = response.Prerequisites.Any(p =>
+            string.Equals(p.Name, "usbipd-win", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(p.Status, "installed", StringComparison.OrdinalIgnoreCase));
+
+        SetupInstallUsbIpdButton.Visibility = usbipdMissing
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         foreach (var prereq in response.Prerequisites)
         {

@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text;
 using Grpc.Core;
-using UsbDeviceBridge.Service.Interop;
 using Usbdevicebridge.V1;
 
 namespace UsbDeviceBridge.Service.Services;
@@ -11,9 +10,7 @@ namespace UsbDeviceBridge.Service.Services;
 /// Handles usbipd-win and WSL2 installation with elevated privilege execution on service side.
 /// </summary>
 public sealed class SetupServiceImpl(
-    ILogger<SetupServiceImpl> logger,
-    UsbIpdClient usbIpdClient,
-    WslInterop wslInterop
+    ILogger<SetupServiceImpl> logger
 ) : SetupService.SetupServiceBase
 {
     public override async Task<CheckPrerequisitesResponse> CheckPrerequisites(
@@ -39,175 +36,6 @@ public sealed class SetupServiceImpl(
         );
 
         return response;
-    }
-
-    public override async Task<QueryDistrosResponse> QueryDistros(
-        QueryDistrosRequest request,
-        ServerCallContext context
-    )
-    {
-        logger.LogInformation("QueryDistros started");
-        var response = new QueryDistrosResponse();
-
-        try
-        {
-            var distros = await wslInterop.QuerySelectableDistrosAsync(context.CancellationToken);
-            
-            foreach (var distroName in distros)
-            {
-                response.Distros.Add(new DistroInfo
-                {
-                    Name = distroName,
-                    IsRunning = false, // Could check this via wsl.exe --list --running
-                    Version = "2",     // Assume WSL2 for now
-                    DefaultUser = "root"
-                });
-            }
-
-            logger.LogInformation("Found {DistroCount} distros", response.Distros.Count);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error querying distros");
-        }
-
-        return response;
-    }
-
-    public override async Task ConfigureDistros(
-        ConfigureDistrosRequest request,
-        IServerStreamWriter<SetupOutputEvent> responseStream,
-        ServerCallContext context
-    )
-    {
-        logger.LogInformation("ConfigureDistros started for {DistroCount} distros", request.DistroNames.Count);
-        var ct = context.CancellationToken;
-
-        try
-        {
-            if (request.DistroNames.Count == 0)
-            {
-                await responseStream.WriteAsync(new SetupOutputEvent
-                {
-                    OutputLine = "No distros selected for configuration.",
-                    IsError = false,
-                    ExitCode = 0
-                });
-                return;
-            }
-
-            // List of default packages to install if none specified.
-            // Matches what the Python app installs: usbutils (lsusb), linux-tools-generic
-            // (usbip client tools), and hwdata (USB device name database).
-            var packages = request.Packages.Count > 0
-                ? request.Packages.ToList()
-                : new List<string> { "usbutils", "linux-tools-generic", "hwdata" };
-
-            bool allSucceeded = true;
-            foreach (var distroName in request.DistroNames)
-            {
-                await responseStream.WriteAsync(new SetupOutputEvent
-                {
-                    OutputLine = $"\n>>> Configuring {distroName}...",
-                    IsError = false,
-                    ExitCode = 0
-                });
-
-                // Update package list — stream each apt-get line as it arrives
-                await responseStream.WriteAsync(new SetupOutputEvent
-                {
-                    OutputLine = "  $ apt-get update",
-                    IsError = false,
-                    ExitCode = 0
-                });
-
-                var updateExitCode = await wslInterop.RunCommandInDistroStreamingAsync(
-                    distroName,
-                    "apt-get update",
-                    async line => await responseStream.WriteAsync(new SetupOutputEvent
-                    {
-                        OutputLine = line,
-                        IsError = false,
-                        ExitCode = 0
-                    }),
-                    ct,
-                    user: "root"
-                );
-
-                if (updateExitCode != 0)
-                {
-                    await responseStream.WriteAsync(new SetupOutputEvent
-                    {
-                        OutputLine = $"  ⚠ apt-get update exited with code {updateExitCode}",
-                        IsError = false,
-                        ExitCode = 0
-                    });
-                }
-
-                // Install packages — stream each apt-get line as it arrives
-                var packagesList = string.Join(" ", packages);
-                await responseStream.WriteAsync(new SetupOutputEvent
-                {
-                    OutputLine = $"\n  $ apt-get install -y {packagesList}",
-                    IsError = false,
-                    ExitCode = 0
-                });
-
-                var installExitCode = await wslInterop.RunCommandInDistroStreamingAsync(
-                    distroName,
-                    $"apt-get install -y {packagesList}",
-                    async line => await responseStream.WriteAsync(new SetupOutputEvent
-                    {
-                        OutputLine = line,
-                        IsError = false,
-                        ExitCode = 0
-                    }),
-                    ct,
-                    user: "root"
-                );
-
-                if (installExitCode == 0)
-                {
-                    await responseStream.WriteAsync(new SetupOutputEvent
-                    {
-                        OutputLine = $"\n  ✓ Packages installed: {packagesList}",
-                        IsError = false,
-                        ExitCode = 0
-                    });
-                }
-                else
-                {
-                    allSucceeded = false;
-                    await responseStream.WriteAsync(new SetupOutputEvent
-                    {
-                        OutputLine = $"\n  ✗ Package installation failed (exit code {installExitCode})",
-                        IsError = true,
-                        ExitCode = installExitCode
-                    });
-                }
-            }
-
-            await responseStream.WriteAsync(new SetupOutputEvent
-            {
-                OutputLine = allSucceeded
-                    ? "\n✓ All distros configured successfully."
-                    : "\n✗ Configuration finished with errors. Review the output above.",
-                IsError = !allSucceeded,
-                ExitCode = allSucceeded ? 0 : 1
-            });
-
-            logger.LogInformation("Distro configuration completed");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "ConfigureDistros failed");
-            await responseStream.WriteAsync(new SetupOutputEvent
-            {
-                OutputLine = $"✗ Distro configuration failed: {ex.Message}",
-                IsError = true,
-                ExitCode = 1
-            });
-        }
     }
 
     public override async Task RunSetup(
@@ -381,22 +209,9 @@ public sealed class SetupServiceImpl(
     {
         try
         {
-            // Try to list distros - if wsl.exe doesn't exist or returns error, WSL not installed
-            var result = await wslInterop.ListDistrosQuietAsync(ct);
-
-            if (result.ExitCode != 0)
-            {
-                return new PrerequisiteStatus
-                {
-                    Name = "WSL2",
-                    Status = "missing",
-                    Version = "",
-                    Message = "WSL2 not found. Install with: wsl --install",
-                };
-            }
-
-            // Extract just the WSL version number from the first line
-            // "wsl --version" first line: "WSL version: 2.3.26.0" (en) or similar
+            // In installed mode the service runs under LocalSystem, which may not be able
+            // to enumerate per-user distro registrations. Do not treat "no/failed distro list"
+            // as "WSL missing". Instead detect WSL installation from global CLI support.
             var versionResult = await RunProcessAsync("wsl", ["--version"], ct);
             string wslVersion = "unknown";
             if (versionResult.Code == 0 && versionResult.StdOut is { } vOut)
@@ -409,14 +224,35 @@ public sealed class SetupServiceImpl(
                     ? firstLine[(colonIdx + 1)..].Trim()
                     : firstLine;
                 if (string.IsNullOrEmpty(wslVersion)) wslVersion = "unknown";
+
+                return new PrerequisiteStatus
+                {
+                    Name = "WSL2",
+                    Status = "installed",
+                    Version = wslVersion,
+                    Message = $"WSL2 {wslVersion}",
+                };
+            }
+
+            // Fallback for systems where --version is unsupported but WSL is present.
+            var statusResult = await RunProcessAsync("wsl", ["--status"], ct);
+            if (statusResult.Code == 0)
+            {
+                return new PrerequisiteStatus
+                {
+                    Name = "WSL2",
+                    Status = "installed",
+                    Version = "unknown",
+                    Message = "WSL2 installed",
+                };
             }
 
             return new PrerequisiteStatus
             {
                 Name = "WSL2",
-                Status = "installed",
-                Version = wslVersion,
-                Message = $"WSL2 {wslVersion}",
+                Status = "missing",
+                Version = "",
+                Message = "WSL2 not found. Install with: wsl --install",
             };
         }
         catch (Exception ex)

@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using Grpc.Core;
 using UsbDeviceBridge.App.Settings;
+using Usbdevicebridge.V1;
 
 namespace UsbDeviceBridge.App;
 
@@ -10,79 +12,61 @@ namespace UsbDeviceBridge.App;
 /// </summary>
 public partial class MainWindow
 {
-    /// <summary>Creates the "service error" retry/start panel shown inside setup steps.</summary>
-    private FrameworkElement CreateServiceErrorPanel(string message, bool showStartButton, Func<Task> retry)
-    {
-        var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(0, 4, 0, 0) };
-
-        panel.Children.Add(new System.Windows.Controls.TextBlock
-        {
-            Text = message,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.OrangeRed),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 10)
-        });
-
-        var buttonRow = new System.Windows.Controls.StackPanel
-        {
-            Orientation = System.Windows.Controls.Orientation.Horizontal,
-        };
-
-        if (showStartButton)
-        {
-            var startBtn = new System.Windows.Controls.Button
-            {
-                Content = "Start Service",
-                Style = (System.Windows.Style)FindResource("AccentBtn"),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                Margin = new Thickness(0, 0, 8, 0),
-            };
-
-            var retryBtn = new System.Windows.Controls.Button
-            {
-                Content = "↺  Retry",
-                Style = (System.Windows.Style)FindResource("GhostBtn"),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-            };
-
-            startBtn.Click += async (_, _) =>
-            {
-                startBtn.IsEnabled = false;
-                retryBtn.IsEnabled = false;
-                startBtn.Content = "Starting…";
-                TryStartWindowsService();
-                await Task.Delay(3500);
-                await retry();
-            };
-            retryBtn.Click += (_, _) => _ = retry();
-
-            buttonRow.Children.Add(startBtn);
-            buttonRow.Children.Add(retryBtn);
-        }
-        else
-        {
-            var retryBtn = new System.Windows.Controls.Button
-            {
-                Content = "↺  Retry",
-                Style = (System.Windows.Style)FindResource("GhostBtn"),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-            };
-            retryBtn.Click += (_, _) => _ = retry();
-            buttonRow.Children.Add(retryBtn);
-        }
-
-        panel.Children.Add(buttonRow);
-        return panel;
-    }
-
     private async Task<bool> RestartServiceFromRecoveryPanelAsync()
     {
         var started = TryStartWindowsService();
         if (!started)
             return false;
 
-        await Task.Delay(3500);
+        await PollUntilServiceReadyAsync();
         return true;
+    }
+
+    private async Task PollUntilServiceReadyAsync(
+        int timeoutSeconds = 30,
+        int intervalMs = 800)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        var elapsed = 0;
+
+        while (!cts.Token.IsCancellationRequested)
+        {
+            try
+            {
+                using var call = _client.Device.WatchHeartbeat(
+                    new HeartbeatRequest { IntervalMs = (uint)Math.Max(500, intervalMs) },
+                    deadline: DateTime.UtcNow.AddMilliseconds(intervalMs - 100),
+                    cancellationToken: cts.Token);
+
+                if (await call.ResponseStream.MoveNext(cts.Token))
+                {
+                    // Received heartbeat — service is up.
+                    return;
+                }
+
+            }
+            catch (RpcException)
+            {
+                // Not ready yet; keep waiting.
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            elapsed += intervalMs;
+            _vm.ShowServiceRecoveryPromptForSetup(
+                $"Waiting for service to start... ({elapsed / 1000}s)");
+
+            try
+            {
+                await Task.Delay(intervalMs, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
     }
 
     private static bool TryStartWindowsService()
@@ -180,8 +164,8 @@ public partial class MainWindow
 
         if (_settings.StartWithWindows && !registryEnabled)
         {
-            var exePath = System.Reflection.Assembly.GetEntryAssembly()?.Location
-                ?? System.Environment.ProcessPath
+            var exePath = System.Environment.ProcessPath
+                ?? System.Reflection.Assembly.GetEntryAssembly()?.Location
                 ?? string.Empty;
             _startupRegistry.TryEnable(exePath, out _);
         }
