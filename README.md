@@ -13,7 +13,7 @@
 
 </div>
 
-**A native C# rewrite of [USB Device Bridge for WSL](https://github.com/delabrcd/usbipd-device-attach-manager)—written by someone who doesn't know C# and just let AI write all of it.**
+**A native C# rewrite of [usb-device-bridge-wsl](https://github.com/delabrcd/usb-device-bridge-wsl) *(now archived — this is the active successor)*—written by someone who doesn't know C# and just let AI write all of it.**
 
 A Windows desktop application built with WPF and .NET that simplifies USB device sharing between Windows and Linux in WSL2. Attach USB peripherals to your Linux environment with one-click operations and automatic device reconnection when devices are plugged in.
 
