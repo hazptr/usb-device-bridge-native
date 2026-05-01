@@ -3,16 +3,20 @@ using System.IO;
 using System.Net.Sockets;
 using UsbDeviceBridge.App.Interop.UsbIpProtocol;
 using UsbDeviceBridge.App.Models;
+using Usbdevicebridge.V1;
 
 namespace UsbDeviceBridge.App.Services;
 
 public sealed class UsbIpdClient
 {
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan CapabilityProbeTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SshAttachTimeout = TimeSpan.FromSeconds(20);
 
     private readonly string _usbIpdPath;
     private readonly string _tcpHost;
     private readonly int _tcpPort;
+    private bool? _supportsRemoteAttach;
 
     public UsbIpdClient(
         string? usbIpdPath = null,
@@ -40,13 +44,52 @@ public sealed class UsbIpdClient
         string busId,
         CancellationToken ct
     )
+        => await AttachAsync(
+            new AttachTarget { Type = AttachTargetType.Wsl, Name = distro ?? string.Empty },
+            busId,
+            ct);
+
+    public async Task<(bool Ok, string Message)> AttachAsync(
+        AttachTarget target,
+        string busId,
+        CancellationToken ct)
     {
+        var normalizedBusId = (busId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedBusId))
+            return (false, "Bus ID is required.");
+
+        // Bind the device first if not already bound
+        var bindResult = await BindAsync(normalizedBusId, ct);
+        if (!bindResult.Ok)
+            return bindResult;
+
         (int Code, string? Stdout, string? Stderr) result;
+        var normalizedType = NormalizeAttachTargetType(target.Type);
+        var targetName = (target.Name ?? string.Empty).Trim();
+
         try
         {
-            var args = string.IsNullOrWhiteSpace(distro)
-                ? new[] { "attach", "--busid", busId, "--wsl" }
-                : new[] { "attach", "--busid", busId, "--wsl", distro };
+            string[] args;
+            if (normalizedType == AttachTargetType.Ssh)
+            {
+                if (string.IsNullOrWhiteSpace(targetName))
+                    return (false, "SSH target name is required.");
+
+                if (!await SupportsRemoteAttachAsync(ct))
+                {
+                    return (false,
+                        "The installed usbipd-win does not support SSH attach targets (missing '--remote'). "
+                        + "This version only supports '--wsl'. Choose a WSL target or upgrade usbipd-win.");
+                }
+
+                args = ["attach", "--busid", busId, "--remote", targetName];
+            }
+            else
+            {
+                args = string.IsNullOrWhiteSpace(targetName)
+                    ? ["attach", "--busid", busId, "--wsl"]
+                    : ["attach", "--busid", busId, "--wsl", targetName];
+            }
 
             result = await RunCliAsync(args, ct, AttachTimeout);
         }
@@ -60,8 +103,24 @@ public sealed class UsbIpdClient
             return (true, "");
 
         var message = $"{stderr}\n{stdout}".Trim();
+
         if (
-            !string.IsNullOrWhiteSpace(distro)
+            normalizedType == AttachTargetType.Ssh
+            && (
+                message.Contains("Unrecognized command or argument '--remote'", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("Option '--wsl' is required", StringComparison.OrdinalIgnoreCase)
+            )
+        )
+        {
+            _supportsRemoteAttach = false;
+            return (false,
+                "The installed usbipd-win does not support SSH attach targets (missing '--remote'). "
+                + "This version only supports '--wsl'. Choose a WSL target or upgrade usbipd-win.");
+        }
+
+        if (
+            normalizedType == AttachTargetType.Wsl
+            && !string.IsNullOrWhiteSpace(targetName)
             && (
                 message.Contains("--distribution", StringComparison.OrdinalIgnoreCase)
                 || message.Contains("unrecognized", StringComparison.OrdinalIgnoreCase)
@@ -71,7 +130,7 @@ public sealed class UsbIpdClient
             try
             {
                 var (fallbackCode, fallbackStdout, fallbackStderr) = await RunCliAsync(
-                    ["attach", "--busid", busId, "--wsl", "--distribution", distro],
+                    ["attach", "--busid", busId, "--wsl", "--distribution", targetName],
                     ct,
                     AttachTimeout
                 );
@@ -89,10 +148,90 @@ public sealed class UsbIpdClient
         return (false, message);
     }
 
+    public async Task<(bool Ok, string Message)> AttachViaSshClientAsync(
+        string sshTarget,
+        string busId,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sshTarget))
+            return (false, "SSH target name is required.");
+
+        if (string.IsNullOrWhiteSpace(busId))
+            return (false, "Bus ID is required.");
+
+        var normalizedBusId = busId.Trim();
+
+        // usbip attach always requires root on Linux. Use sudo -n directly.
+        // The Setup step writes /etc/sudoers.d/usbip-attach granting passwordless sudo for usbip.
+        var attachCommand = $"sudo -n usbip attach --remote 127.0.0.1 --busid {normalizedBusId}";
+        var result = await RunSshCommandAsync(sshTarget, attachCommand, ct);
+
+        if (result.Ok)
+            return result;
+
+        var needsPassword = result.Message.Contains("password is required", StringComparison.OrdinalIgnoreCase)
+            || result.Message.Contains("a terminal is required", StringComparison.OrdinalIgnoreCase)
+            || result.Message.Contains("no tty present", StringComparison.OrdinalIgnoreCase)
+            || result.Message.Contains("no password was provided", StringComparison.OrdinalIgnoreCase);
+
+        return needsPassword
+            ? (false,
+                $"SSH client '{sshTarget}' requires passwordless sudo for usbip. "
+                + "Run Setup for this client in Settings to configure it.")
+            : result;
+    }
+
+    private static AttachTargetType NormalizeAttachTargetType(AttachTargetType type)
+        => type == AttachTargetType.Ssh
+            ? AttachTargetType.Ssh
+            : AttachTargetType.Wsl;
+
+    private async Task<bool> SupportsRemoteAttachAsync(CancellationToken ct)
+    {
+        if (_supportsRemoteAttach.HasValue)
+            return _supportsRemoteAttach.Value;
+
+        try
+        {
+            var (_, stdout, stderr) = await RunCliAsync(["attach", "--help"], ct, CapabilityProbeTimeout);
+            var help = $"{stdout}\n{stderr}";
+            _supportsRemoteAttach = help.Contains("--remote", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            _supportsRemoteAttach = false;
+        }
+
+        return _supportsRemoteAttach.Value;
+    }
+
     public async Task<(bool Ok, string Message)> DetachAsync(string busId, CancellationToken ct)
     {
         var (code, _, stderr) = await RunCliAsync(["detach", "-b", busId], ct);
         return code == 0 ? (true, "") : (false, stderr ?? "detach failed");
+    }
+
+    public async Task<(bool Ok, string Message)> BindAsync(string busId, CancellationToken ct)
+    {
+        try
+        {
+            var (code, stdout, stderr) = await RunCliAsync(["bind", "--busid", busId], ct, AttachTimeout);
+            if (code == 0)
+                return (true, "");
+
+            var message = $"{stderr}\n{stdout}".Trim();
+
+            // Device may already be bound; that's fine
+            if (message.Contains("already bound", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("already in use", StringComparison.OrdinalIgnoreCase))
+                return (true, "");
+
+            return (false, message);
+        }
+        catch (AppUsbIpdTimeoutException)
+        {
+            return (false, $"usbipd bind timed out after {(int)AttachTimeout.TotalSeconds} seconds.");
+        }
     }
 
     public async Task<TcpClient> ConnectTcpAsync(CancellationToken ct)
@@ -206,6 +345,68 @@ public sealed class UsbIpdClient
         }
     }
 
+    private async Task<(bool Ok, string Message)> RunSshCommandAsync(
+        string sshTarget,
+        string remoteCommand,
+        CancellationToken ct,
+        string? reverseTunnelSpec = null)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "ssh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("BatchMode=yes");
+        if (!string.IsNullOrWhiteSpace(reverseTunnelSpec))
+        {
+            psi.ArgumentList.Add("-o");
+            psi.ArgumentList.Add("ExitOnForwardFailure=yes");
+            psi.ArgumentList.Add("-R");
+            psi.ArgumentList.Add(reverseTunnelSpec);
+        }
+        psi.ArgumentList.Add(sshTarget);
+        psi.ArgumentList.Add(remoteCommand);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(SshAttachTimeout);
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+
+        try
+        {
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+            var stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+            await process.WaitForExitAsync(cts.Token);
+
+            var stdout = (await stdoutTask)?.Trim() ?? string.Empty;
+            var stderr = (await stderrTask)?.Trim() ?? string.Empty;
+            var message = $"{stderr}\n{stdout}".Trim();
+            return process.ExitCode == 0
+                ? (true, string.Empty)
+                : (false, string.IsNullOrWhiteSpace(message) ? "SSH client attach failed." : message);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Best effort kill.
+            }
+
+            return (false, $"SSH client attach timed out after {(int)SshAttachTimeout.TotalSeconds} seconds.");
+        }
+    }
+
     private async Task<IReadOnlyList<UsbIpdStateDevice>> GetDevicesFromStateAsync(CancellationToken ct)
     {
         var (code, stdout, stderr) = await RunCliAsync(["state"], ct);
@@ -305,3 +506,4 @@ public sealed class UsbIpdClient
 public sealed class AppUsbIpdException(string message) : Exception(message);
 
 public sealed class AppUsbIpdTimeoutException(string message) : Exception(message);
+

@@ -28,6 +28,17 @@ message UnbindDeviceResponse {
   string message = 2;
 }
 
+enum AttachTargetType {
+  ATTACH_TARGET_TYPE_UNSPECIFIED = 0;
+  ATTACH_TARGET_TYPE_WSL = 1;
+  ATTACH_TARGET_TYPE_SSH = 2;
+}
+
+message AttachTarget {
+  AttachTargetType type = 1;
+  string name = 2;
+}
+
 message ApplyFirewallFixRequest {}
 
 message ApplyFirewallFixResponse {

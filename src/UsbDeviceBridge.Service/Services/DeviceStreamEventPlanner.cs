@@ -82,6 +82,7 @@ public static class DeviceStreamEventPlanner
         NormalizeString(a.State) == NormalizeString(b.State) &&
         a.Remembered == b.Remembered &&
         NormalizeString(a.PreferredDistro) == NormalizeString(b.PreferredDistro) &&
+        NormalizeTarget(a.Target).Equals(NormalizeTarget(b.Target)) &&
         a.Attaching == b.Attaching;
 
     public static Device Clone(Device source) =>
@@ -94,10 +95,24 @@ public static class DeviceStreamEventPlanner
             State = NormalizeString(source.State),
             Remembered = source.Remembered,
             PreferredDistro = NormalizeString(source.PreferredDistro),
+            Target = new AttachTarget
+            {
+                Type = NormalizeTarget(source.Target).Type,
+                Name = NormalizeTarget(source.Target).Name,
+            },
             Attaching = source.Attaching,
         };
 
     private static string NormalizeString(string? value) => value ?? string.Empty;
+
+    private static AttachTarget NormalizeTarget(AttachTarget? target)
+        => new()
+        {
+            Type = target?.Type is AttachTargetType.Ssh
+                ? AttachTargetType.Ssh
+                : AttachTargetType.Wsl,
+            Name = NormalizeString(target?.Name),
+        };
 
     public static DeviceDelta Merge(DeviceDelta existing, DeviceDelta incoming)
     {
@@ -112,3 +127,4 @@ public static class DeviceStreamEventPlanner
         return incoming;
     }
 }
+

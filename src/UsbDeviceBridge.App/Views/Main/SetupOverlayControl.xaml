@@ -218,21 +218,39 @@
                 <Grid x:Name="SetupDistroSelectionView">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Margin="0,0,0,12"
-                               Text="Select which WSL distros to configure with USB client packages (usbutils, linux-tools-generic, hwdata). You can skip this step."
+                               Text="Configure attach clients and optionally install required USB client packages. WSL distros are listed automatically and SSH clients can be added here."
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource TextMuted}"/>
-                    <ScrollViewer Grid.Row="1"
+                    <Grid Grid.Row="1" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SetupAddClientHostText"
+                                 Grid.Column="0"
+                                 Height="36"
+                                 Margin="0,0,8,0"
+                                 VerticalContentAlignment="Center"
+                                 Text=""
+                                 ToolTip="Enter SSH host alias or user@host"/>
+                        <Button x:Name="SetupAddClientButton"
+                                Grid.Column="1"
+                                Content="Add SSH client"
+                                Style="{StaticResource GhostBtn}"/>
+                    </Grid>
+                    <ScrollViewer Grid.Row="2"
                                   VerticalScrollBarVisibility="Auto"
                                   Margin="0,0,0,12">
                         <StackPanel x:Name="SetupDistroCheckboxes"/>
                     </ScrollViewer>
                     <Button x:Name="SetupInstallPackagesButton"
-                            Grid.Row="2"
-                            Content="Install packages"
+                            Grid.Row="3"
+                            Content="Install selected client packages"
                             Style="{StaticResource AccentBtn}"
                             HorizontalAlignment="Left"/>
                 </Grid>

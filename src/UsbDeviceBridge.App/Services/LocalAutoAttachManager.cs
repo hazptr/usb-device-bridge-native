@@ -113,7 +113,7 @@ public sealed class LocalAutoAttachManager : IDisposable
 
         CleanUpDisappearedNonRemembered(devicesByInstanceId, remembered);
 
-        foreach (var (instanceId, distro) in remembered)
+        foreach (var (instanceId, target) in remembered)
         {
             if (!devicesByInstanceId.TryGetValue(instanceId, out var device))
                 continue;
@@ -140,13 +140,13 @@ public sealed class LocalAutoAttachManager : IDisposable
             if (_nextRetryTime.TryGetValue(instanceId, out var nextTime) && nextTime > now)
                 continue;
 
-            await AttemptAttachAsync(instanceId, device.BusId, device.HardwareId, distro, state, now, ct);
+            await AttemptAttachAsync(instanceId, device.BusId, device.HardwareId, target, state, now, ct);
         }
     }
 
     private void CleanUpDisappearedNonRemembered(
         Dictionary<string, Device> currentDevices,
-        Dictionary<string, string> remembered)
+        Dictionary<string, AttachTarget> remembered)
     {
         var rememberedSet = new HashSet<string>(remembered.Keys, StringComparer.OrdinalIgnoreCase);
         var currentInstanceIds = new HashSet<string>(currentDevices.Keys, StringComparer.OrdinalIgnoreCase);
@@ -168,7 +168,7 @@ public sealed class LocalAutoAttachManager : IDisposable
         string instanceId,
         string busId,
         string hardwareId,
-        string distro,
+        AttachTarget target,
         AppDeviceState state,
         DateTimeOffset now,
         CancellationToken ct)
@@ -179,7 +179,8 @@ public sealed class LocalAutoAttachManager : IDisposable
             return;
         }
 
-        _logger.LogInformation("Auto-attach attempt {InstanceId} to {Distro}", instanceId, distro);
+        var wslDistro = target.Type == AttachTargetType.Wsl ? target.Name : string.Empty;
+        _logger.LogInformation("Auto-attach attempt {InstanceId} to {TargetType}:{TargetName}", instanceId, target.Type, target.Name);
         AttachingStateChanged?.Invoke(instanceId, true);
 
         var didBind = false;
@@ -198,7 +199,7 @@ public sealed class LocalAutoAttachManager : IDisposable
                         var forceDecision = await RequestForceRetryDecisionAsync(
                             instanceId,
                             busId,
-                            distro,
+                            wslDistro,
                             ForceRetryStage.Bind);
 
                         if (!forceDecision.RetryWithForce)
@@ -242,7 +243,7 @@ public sealed class LocalAutoAttachManager : IDisposable
                 }
             }
 
-            var (ok, msg) = await _deviceManager.AttachAsync(busId, distro, ct);
+            var (ok, msg) = await _deviceManager.AttachAsync(busId, target, ct);
             if (ok)
             {
                 _logger.LogInformation("Auto-attached {InstanceId}", instanceId);
@@ -257,7 +258,7 @@ public sealed class LocalAutoAttachManager : IDisposable
                     var forceDecision = await RequestForceRetryDecisionAsync(
                         instanceId,
                         busId,
-                        distro,
+                        wslDistro,
                         ForceRetryStage.Bind);
 
                     if (!forceDecision.RetryWithForce)
@@ -285,7 +286,7 @@ public sealed class LocalAutoAttachManager : IDisposable
                         return;
                     }
 
-                    var (retryAttachOk, retryAttachMsg) = await _deviceManager.AttachAsync(busId, distro, ct);
+                    var (retryAttachOk, retryAttachMsg) = await _deviceManager.AttachAsync(busId, target, ct);
                     if (!retryAttachOk)
                     {
                         _logger.LogDebug("Auto-attach retry after force-bind failed for {InstanceId}: {Message}", instanceId, retryAttachMsg);
@@ -422,3 +423,4 @@ public sealed class LocalAutoAttachManager : IDisposable
         public DateTimeOffset LastSuccessUtc { get; set; }
     }
 }
+

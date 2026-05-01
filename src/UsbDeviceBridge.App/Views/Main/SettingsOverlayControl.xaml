@@ -274,6 +274,65 @@
                             </StackPanel>
                         </Border>
 
+                        <Border x:Name="SettingsSectionClients"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Clients"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowClientAdd"
+                                      Tag="clients add ssh wsl target dropdown"
+                                      Margin="0,0,0,8">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Add SSH client"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,0,6"/>
+                                    <Grid Grid.Row="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="SettingsAddClientHostText"
+                                                 Height="40"
+                                                 MinHeight="40"
+                                                 Margin="0,0,8,0"
+                                                 Padding="10,6"
+                                                 FontSize="13"
+                                                 VerticalContentAlignment="Center"
+                                                 ToolTip="Enter SSH host alias or user@host"/>
+                                        <Button x:Name="SettingsAddClientButton"
+                                                Grid.Column="1"
+                                                Content="Add"
+                                                Style="{StaticResource GhostBtn}"
+                                                Click="AddClient_OnClick"/>
+                                    </Grid>
+                                </Grid>
+                                <Grid x:Name="SettingRowClientList"
+                                      Tag="clients detected wsl ssh list remove setup packages sudo dnf pacman apt"
+                                      Margin="0,0,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Configured clients"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,0,6"/>
+                                    <StackPanel x:Name="SettingsClientListHost"
+                                                Grid.Row="1"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
                         <Border x:Name="SettingsSectionWindow"
                                 Background="Transparent"
                                 BorderBrush="{DynamicResource BorderBrush}"
@@ -345,7 +404,7 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowFirewallRecoveryPolicy"
                                       Tag="firewall recovery policy ask always never"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -358,6 +417,22 @@
                                               Width="190"
                                               ItemsSource="{Binding FirewallFixPolicyOptions}"
                                               SelectedItem="{Binding FirewallFixPolicySelected, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowSshPortForwardMode"
+                                      Tag="ssh forwarding tunnel attach remote"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="SSH forwarding mode"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              Style="{StaticResource DistroCombo}"
+                                              Width="190"
+                                              ItemsSource="{Binding SshPortForwardModeOptions}"
+                                              SelectedItem="{Binding SshPortForwardModeSelected, Mode=TwoWay}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>

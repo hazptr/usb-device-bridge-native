@@ -26,6 +26,7 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.True(settings.AutoRefreshEnabled);
         Assert.Equal("State then name", settings.SortOrder);
         Assert.Equal(ServiceStartupModes.Automatic, settings.ServiceStartupMode);
+        Assert.Equal(SshPortForwardModes.Enabled, settings.SshPortForwardMode);
     }
 
     [Fact]
@@ -47,6 +48,7 @@ public sealed class AppSettingsServiceTests : IDisposable
             ServiceStartupMode = ServiceStartupModes.OnDemand,
             WindowsNotificationsEnabled = false,
             DetachOnExit = false,
+            SshPortForwardMode = SshPortForwardModes.Disabled,
         };
 
         service.Save(expected);
@@ -63,6 +65,7 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal(ServiceStartupModes.OnDemand, loaded.ServiceStartupMode);
         Assert.False(loaded.WindowsNotificationsEnabled);
         Assert.False(loaded.DetachOnExit);
+        Assert.Equal(SshPortForwardModes.Disabled, loaded.SshPortForwardMode);
     }
 
     [Fact]
@@ -85,6 +88,7 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal("Dark", loaded.Theme);
         Assert.Equal("State then name", loaded.SortOrder);
         Assert.Equal(ServiceStartupModes.Automatic, loaded.ServiceStartupMode);
+        Assert.Equal(SshPortForwardModes.Enabled, loaded.SshPortForwardMode);
     }
 
     [Fact]
@@ -181,6 +185,19 @@ public sealed class AppSettingsServiceTests : IDisposable
         var loaded = service.Load();
 
         Assert.False(loaded.DetachOnExit);
+    }
+
+    [Fact]
+    public void Load_NormalizesInvalidSshPortForwardMode_ToEnabled()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var json = JsonSerializer.Serialize(new { SshPortForwardMode = "invalid-value" });
+        File.WriteAllText(path, json);
+
+        var service = new AppSettingsService(path);
+        var loaded = service.Load();
+
+        Assert.Equal(SshPortForwardModes.Enabled, loaded.SshPortForwardMode);
     }
 
     public void Dispose()

@@ -22,6 +22,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly TrayIconManager _tray;
     private readonly BridgeServiceClient _client;
     private readonly WslUserSpaceInterop _wslUserSpaceInterop;
+    private readonly SshConfigParser _sshConfigParser;
+    private readonly SshPortForwardingManager _sshPortForwardingManager;
     private readonly SettingsResetService _settingsResetService;
     private readonly WindowsStartupRegistryService _startupRegistry;
     private readonly LocalDeviceManager _deviceManager;
@@ -46,6 +48,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UsbDeviceBridge.App.Settings.FirewallFixPolicies.Always,
         UsbDeviceBridge.App.Settings.FirewallFixPolicies.Never,
     ];
+
+    public IReadOnlyList<string> SshPortForwardModeOptions { get; } = SshPortForwardModes.All;
 
     public string FrontendVersion { get; } =
         (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly())
@@ -271,6 +275,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    public string SshPortForwardModeSelected
+    {
+        get => _settings.SshPortForwardMode;
+        set
+        {
+            var normalized = SshPortForwardModes.Normalize(value);
+            if (string.Equals(_settings.SshPortForwardMode, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _settings.SshPortForwardMode = normalized;
+            _settingsService.Save(_settings);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SshPortForwardModeSelected)));
+        }
+    }
+
     public bool StartWithWindowsEnabled
     {
         get => _settings.StartWithWindows;
@@ -308,9 +327,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         _client = new BridgeServiceClient(serviceAddress);
         _wslUserSpaceInterop = new WslUserSpaceInterop();
+        _sshConfigParser = new SshConfigParser();
+        _sshPortForwardingManager = new SshPortForwardingManager();
 
         var usbIpdClient = new UsbIpdClient();
-        _deviceManager = new LocalDeviceManager(usbIpdClient);
+        _deviceManager = new LocalDeviceManager(
+            usbIpdClient,
+            _wslUserSpaceInterop,
+            _sshConfigParser,
+            _sshPortForwardingManager,
+            () => _settings.SshPortForwardMode);
         var rememberedStore = new AppRememberedDeviceStore();
         var autoAttachManager = new LocalAutoAttachManager(_client, _deviceManager, rememberedStore, RequestForceRetryAsync);
 
@@ -322,6 +348,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _deviceManager,
             rememberedStore,
             autoAttachManager,
+            _wslUserSpaceInterop,
+            _sshConfigParser,
             RestartServiceFromRecoveryPanelAsync,
             () => _settings.FirewallFixPolicy,
             RequestFirewallConsentAsync,
@@ -334,6 +362,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     _tray.ShowOsNotification(title, message, severity);
                     await Task.CompletedTask;
                 }
+            },
+            getAdditionalSshClients: () => _settings.AdditionalSshClients,
+            getLastClientForDevice: instanceId =>
+                _settings.LastUsedClientByDevice.TryGetValue(instanceId, out var v) ? v : null,
+            saveClientForDevice: (instanceId, client) =>
+            {
+                _settings.LastUsedClientByDevice[instanceId] = client;
+                _settingsService.Save(_settings);
             });
         _vm.IsAutoRefresh = _settings.AutoRefreshEnabled;
         _vm.SetSortOrder(_settings.SortOrder);
@@ -373,6 +409,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SettingsOverlay.OpenUsbIpDocsRequested += OpenUsbIpDocs_OnClick;
         SettingsOverlay.ResetSetupRequested += ResetSetup_OnClick;
         SettingsOverlay.CopyVersionInfoRequested += CopyVersionInfo_OnClick;
+        SettingsOverlay.AddClientRequested += SettingsAddClient_OnClick;
 
         DataContext = _vm;
         SettingsOverlay.DataContext = this;
@@ -405,6 +442,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _vm.Devices.CollectionChanged -= Devices_CollectionChanged;
             _vm.Dispose(); // Stops auto-attach manager and device stream first.
             RunDetachOnExitCleanup();
+            _sshPortForwardingManager.Dispose();
             _tray.Dispose();
         };
 

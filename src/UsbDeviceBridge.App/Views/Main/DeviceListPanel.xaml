@@ -66,7 +66,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="82"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="380"/>
                                 </Grid.ColumnDefinitions>
                                 <Border x:Name="BadgeBorder"
                                         Grid.Column="0"
@@ -99,13 +99,28 @@
                                       VerticalAlignment="Center"
                                       HorizontalAlignment="Stretch"
                                       ClipToBounds="False">
-                                    <StackPanel Grid.Column="0"
-                                                Orientation="Horizontal"
-                                                VerticalAlignment="Center"
-                                            HorizontalAlignment="Right"
-                                                Margin="0,0,0,0"
-                                                IsEnabled="{Binding DataContext.AreDeviceActionsEnabled, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                Visibility="{Binding ActionsVisibility}">
+                                    <Grid Visibility="{Binding ActionsVisibility}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0"
+                                                    Orientation="Vertical"
+                                                    Margin="0,0,8,0"
+                                                    IsEnabled="{Binding DataContext.AreDeviceActionsEnabled, RelativeSource={RelativeSource AncestorType=Window}}">
+                                            <ComboBox Style="{StaticResource DistroCombo}"
+                                                      Width="210"
+                                                      IsEnabled="{Binding CanSelectClient}"
+                                                      ItemsSource="{Binding AvailableClients}"
+                                                      SelectedItem="{Binding SelectedClient, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Right"
+                                                    Margin="0,0,0,0"
+                                                    IsEnabled="{Binding DataContext.AreDeviceActionsEnabled, RelativeSource={RelativeSource AncestorType=Window}}">
                                         <Button ToolTip="{Binding ConnectTooltip}"
                                                 Visibility="{Binding ConnectVisibility}"
                                                 IsEnabled="{Binding CanConnect}"
@@ -161,7 +176,8 @@
                                                       Stretch="Uniform"/>
                                             </Viewbox>
                                         </ToggleButton>
-                                    </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
                                     <StackPanel x:Name="BusyPane"
                                                 Orientation="Horizontal"
                                                 VerticalAlignment="Center"

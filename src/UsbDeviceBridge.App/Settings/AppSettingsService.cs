@@ -73,6 +73,13 @@ public sealed class AppSettingsService
             : "State then name";
         settings.ServiceStartupMode = ServiceStartupModes.Normalize(settings.ServiceStartupMode);
         settings.FirewallFixPolicy = FirewallFixPolicies.Normalize(settings.FirewallFixPolicy);
+        settings.SshPortForwardMode = SshPortForwardModes.Normalize(settings.SshPortForwardMode);
+        settings.AdditionalSshClients = (settings.AdditionalSshClients ?? [])
+            .Select(c => c?.Trim() ?? string.Empty)
+            .Where(c => c.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         return settings;
     }
 }

@@ -92,7 +92,10 @@ public static class CliRunner
         {
             var busId = string.IsNullOrEmpty(d.BusId) ? "-" : d.BusId;
             var isRemembered = !string.IsNullOrEmpty(d.InstanceId) && remembered.ContainsKey(d.InstanceId);
-            var rem = isRemembered ? $"yes ({remembered.GetValueOrDefault(d.InstanceId, "")})" : "no";
+            var rem = "no";
+            if (isRemembered && remembered.TryGetValue(d.InstanceId, out var rememberedTarget))
+                rem = $"yes ({rememberedTarget.Type}:{rememberedTarget.Name})";
+
             Console.WriteLine($"{busId,-8} {d.State,-10} {rem,-22} {d.HardwareId,-10} {d.Description}");
         }
     }
@@ -122,14 +125,14 @@ public static class CliRunner
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("Usage: attach <bus-id> [<distro>]");
+            Console.Error.WriteLine("Usage: attach <bus-id> [--wsl <distro> | --ssh <host>]");
             Environment.Exit(1);
         }
 
         var busId = args[0];
-        var distro = args.ElementAtOrDefault(1) ?? "";
+        var target = ParseAttachTarget(args.Skip(1).ToArray());
 
-        Console.WriteLine($"Attaching {busId} → {(string.IsNullOrEmpty(distro) ? "<default distro>" : distro)}...");
+        Console.WriteLine($"Attaching {busId} → {target.Type}:{(string.IsNullOrWhiteSpace(target.Name) ? "<default>" : target.Name)}...");
 
         // Bind via service first (requires elevation).
         var bindResp = await client.Admin.BindDeviceAsync(new BindDeviceRequest { BusId = busId });
@@ -140,7 +143,7 @@ public static class CliRunner
         }
 
         // Attach via app (user context, sees WSL distros).
-        var (ok, msg) = await deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+        var (ok, msg) = await deviceManager.AttachAsync(busId, target, CancellationToken.None);
         Console.WriteLine(ok ? "OK" : $"Attach FAILED: {msg}");
         if (!ok) Environment.Exit(1);
     }
@@ -174,12 +177,20 @@ public static class CliRunner
     {
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("Usage: remember <instance-id> <distro>");
+            Console.Error.WriteLine("Usage: remember <instance-id> <target-name> [--target-type wsl|ssh]");
             Environment.Exit(1);
         }
 
-        store.AddOrUpdate(args[0], args[1]);
-        Console.WriteLine($"OK: Remembered {args[0]} → {args[1]}");
+        var type = AttachTargetType.Wsl;
+        var maybeTypeFlag = Array.FindIndex(args, a => a.Equals("--target-type", StringComparison.OrdinalIgnoreCase));
+        if (maybeTypeFlag >= 0 && maybeTypeFlag + 1 < args.Length
+            && args[maybeTypeFlag + 1].Equals("ssh", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AttachTargetType.Ssh;
+        }
+
+        store.AddOrUpdate(args[0], new AttachTarget { Type = type, Name = args[1] });
+        Console.WriteLine($"OK: Remembered {args[0]} → {type}:{args[1]}");
     }
 
     private static void ForgetCommand(AppRememberedDeviceStore store, string[] args)
@@ -203,10 +214,32 @@ public static class CliRunner
             return;
         }
 
-        Console.WriteLine($"{"INSTANCE-ID",-60} DISTRO");
+        Console.WriteLine($"{"INSTANCE-ID",-60} TARGET");
         Console.WriteLine(new string('-', 80));
-        foreach (var (instanceId, distro) in remembered)
-            Console.WriteLine($"{instanceId,-60} {distro}");
+        foreach (var (instanceId, target) in remembered)
+            Console.WriteLine($"{instanceId,-60} {target.Type}:{target.Name}");
+    }
+
+    private static AttachTarget ParseAttachTarget(string[] args)
+    {
+        if (args.Length == 0)
+            return new AttachTarget { Type = AttachTargetType.Wsl, Name = string.Empty };
+
+        var wslIndex = Array.FindIndex(args, a => a.Equals("--wsl", StringComparison.OrdinalIgnoreCase));
+        if (wslIndex >= 0)
+        {
+            var distro = wslIndex + 1 < args.Length ? args[wslIndex + 1] : string.Empty;
+            return new AttachTarget { Type = AttachTargetType.Wsl, Name = distro };
+        }
+
+        var sshIndex = Array.FindIndex(args, a => a.Equals("--ssh", StringComparison.OrdinalIgnoreCase));
+        if (sshIndex >= 0)
+        {
+            var host = sshIndex + 1 < args.Length ? args[sshIndex + 1] : string.Empty;
+            return new AttachTarget { Type = AttachTargetType.Ssh, Name = host };
+        }
+
+        return new AttachTarget { Type = AttachTargetType.Wsl, Name = args[0] };
     }
 
     private static void PrintHelp(string serviceAddress)
@@ -221,12 +254,13 @@ public static class CliRunner
         Console.WriteLine("COMMANDS");
         Console.WriteLine("  devices (d)                       List all USB devices");
         Console.WriteLine("  distros                           List WSL distros");
-        Console.WriteLine("  attach (a) <bus-id> [<distro>]    Bind + attach device to WSL");
+        Console.WriteLine("  attach (a) <bus-id> [--wsl <distro> | --ssh <host>]  Bind + attach device");
         Console.WriteLine("  detach (x) <bus-id>               Detach + unbind device");
-        Console.WriteLine("  remember (r) <instance-id> <distro>  Remember for auto-attach");
+        Console.WriteLine("  remember (r) <instance-id> <target-name> [--target-type wsl|ssh]  Remember for auto-attach");
         Console.WriteLine("  forget (f) <instance-id>          Forget device");
         Console.WriteLine("  remembered (rm)                   List remembered devices");
         Console.WriteLine();
         Console.WriteLine("  No args → open the UI window");
     }
 }
+

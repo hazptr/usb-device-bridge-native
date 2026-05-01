@@ -42,6 +42,22 @@ public static class FirewallFixPolicies
     }
 }
 
+public static class SshPortForwardModes
+{
+    public const string Disabled = "disabled";
+    public const string Enabled = "enabled";
+
+    public static readonly IReadOnlyList<string> All = [Enabled, Disabled];
+
+    public static string Normalize(string? value)
+    {
+        if (string.Equals(value, Disabled, StringComparison.OrdinalIgnoreCase))
+            return Disabled;
+
+        return Enabled;
+    }
+}
+
 public sealed class AppSettings
 {
     public bool SetupCompleted { get; set; }
@@ -81,4 +97,22 @@ public sealed class AppSettings
     /// </summary>
     public bool DetachOnExit { get; set; } = true;
 
+    /// <summary>
+    /// Controls whether SSH targets use a local port-forward tunnel before attach.
+    /// Accepted values: "enabled" (default), "disabled".
+    /// Invalid or missing values are normalized to "enabled".
+    /// </summary>
+    public string SshPortForwardMode { get; set; } = SshPortForwardModes.Enabled;
+
+    /// <summary>
+    /// User-defined SSH client aliases/hosts to include in target selection.
+    /// These complement discovered entries from SSH config.
+    /// </summary>
+    public List<string> AdditionalSshClients { get; set; } = [];
+
+    /// <summary>
+    /// Last-used attach target (client dropdown value) per device, keyed by InstanceId.
+    /// Persisted so the dropdown restores to the previous selection after app restart.
+    /// </summary>
+    public Dictionary<string, string> LastUsedClientByDevice { get; set; } = [];
 }

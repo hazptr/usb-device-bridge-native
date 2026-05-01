@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package usbdevicebridge.v1;
 
+import "bind.proto";
+
 service DeviceService {
   rpc GetVersionInfo(GetVersionInfoRequest) returns (VersionInfo);
   rpc WatchHeartbeat(HeartbeatRequest) returns (stream HeartbeatEvent);
@@ -36,4 +38,5 @@ message Device {
   bool remembered = 6;
   string preferred_distro = 7;
   bool attaching = 8;
+  AttachTarget target = 9;
 }

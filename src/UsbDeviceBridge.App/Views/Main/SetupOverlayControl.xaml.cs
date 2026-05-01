@@ -37,6 +37,10 @@ public partial class SetupOverlayControl : UserControl
 
     public Button InstallPackagesButton => SetupInstallPackagesButton;
 
+    public TextBox AddClientHostText => SetupAddClientHostText;
+
+    public Button AddClientButton => SetupAddClientButton;
+
     public Button InstallStopButton => SetupInstallStopButton;
 
     public Button InstallStartOverButton => SetupInstallStartOverButton;

@@ -40,7 +40,7 @@ public static class AttachToastMessages
     public static string FirewallFixAppliedAndSucceeded(string deviceDescription, string distro)
         => string.IsNullOrWhiteSpace(distro)
             ? $"Firewall fix applied — \"{deviceDescription}\" connected."
-            : $"Firewall fix applied — \"{deviceDescription}\" connected to {distro}.";
+            : $"Firewall fix applied — \"{deviceDescription}\" connected to WSL | {distro}";
 
     // ── Auto-attach (notifications from the background service) ──────────────
 

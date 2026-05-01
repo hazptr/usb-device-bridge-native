@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Media.Animation;
@@ -24,7 +25,8 @@ public partial class MainWindow
     private string _setupSelectedTheme = "Dark";
     private bool _setupForceShowingOverlay;
     private List<(string Name, string Status, string Message)>? _setupPrerequisitesStatus;
-    private Dictionary<string, bool> _setupSelectedDistros = new();
+    private Dictionary<string, bool> _setupSelectedClients = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _setupCustomSshClients = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _setupInstallCts;
     private bool _setupPrerequisitesVerifiedInstalled;
     private bool _deviceInitializationStarted;
@@ -48,6 +50,10 @@ public partial class MainWindow
     private TextBox SetupInstallLogText => SetupOverlay.InstallLogText;
 
     private Button SetupInstallPackagesButton => SetupOverlay.InstallPackagesButton;
+
+    private TextBox SetupAddClientHostText => SetupOverlay.AddClientHostText;
+
+    private Button SetupAddClientButton => SetupOverlay.AddClientButton;
 
     private Button SetupInstallStopButton => SetupOverlay.InstallStopButton;
 
@@ -103,6 +109,7 @@ public partial class MainWindow
         SetupBackButton.Click -= SetupBack_OnClick;
         SetupNextButton.Click -= SetupNext_OnClick;
         SetupInstallPackagesButton.Click -= SetupInstallPackages_OnClick;
+        SetupAddClientButton.Click -= SetupAddClient_OnClick;
         SetupInstallStopButton.Click -= SetupInstallStop_OnClick;
         SetupInstallStartOverButton.Click -= SetupInstallStartOver_OnClick;
         SetupInstallUsbIpdButton.Click -= SetupInstallUsbIpd_OnClick;
@@ -112,6 +119,7 @@ public partial class MainWindow
         SetupBackButton.Click += SetupBack_OnClick;
         SetupNextButton.Click += SetupNext_OnClick;
         SetupInstallPackagesButton.Click += SetupInstallPackages_OnClick;
+        SetupAddClientButton.Click += SetupAddClient_OnClick;
         SetupInstallStopButton.Click += SetupInstallStop_OnClick;
         SetupInstallStartOverButton.Click += SetupInstallStartOver_OnClick;
         SetupInstallUsbIpdButton.Click += SetupInstallUsbIpd_OnClick;
@@ -130,6 +138,10 @@ public partial class MainWindow
         _setupStepIndex = 0;
         _setupSelectedTheme = "Dark";
         _setupPrerequisitesVerifiedInstalled = false;
+        _setupCustomSshClients.Clear();
+        foreach (var client in _settings.AdditionalSshClients)
+            _setupCustomSshClients.Add(client);
+        SetupAddClientHostText.Text = string.Empty;
         _vm.StatusText = "Setup in progress";
         UpdateSetupStepUi();
         ApplySetupCardPreviews();
@@ -179,7 +191,7 @@ public partial class MainWindow
         {
             _setupStepIndex = 2;
             UpdateSetupStepUi();
-            _ = PopulateDistroCheckboxesAsync();
+            _ = PopulateClientCheckboxesAsync();
             return;
         }
 
@@ -201,6 +213,9 @@ public partial class MainWindow
         _settings.StartMinimized = SetupStartMinimized.IsChecked == true;
         _settings.AutoRefreshEnabled = SetupAutoRefresh.IsChecked == true;
         _settings.AutoUpdateEnabled = SetupAutoUpdate.IsChecked == true;
+        _settings.AdditionalSshClients = _setupCustomSshClients
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         _vm.IsAutoRefresh = _settings.AutoRefreshEnabled;
         _settingsService.Save(_settings);
 
@@ -257,37 +272,43 @@ public partial class MainWindow
         await _vm.InitializeAsync();
     }
 
-    private async Task PopulateDistroCheckboxesAsync()
+    private readonly record struct SetupClientInstallTarget(string Key, AttachTargetType Type, string Name, string Label);
+
+    private List<SetupClientInstallTarget> _setupAvailableClients = [];
+
+    private async Task PopulateClientCheckboxesAsync()
     {
         SetupDistroCheckboxes.Children.Clear();
-        _setupSelectedDistros.Clear();
 
         var loadingText = new System.Windows.Controls.TextBlock
         {
-            Text = "Querying WSL distros...",
+            Text = "Loading available clients...",
             Foreground = (System.Windows.Media.Brush)FindResource("TextMuted"),
             Margin = new Thickness(0, 4, 0, 0)
         };
         SetupDistroCheckboxes.Children.Add(loadingText);
 
-        var distros = await _wslUserSpaceInterop.QueryDistrosAsync();
+        _setupAvailableClients = await QuerySetupClientsAsync();
+        var previousSelections = new Dictionary<string, bool>(_setupSelectedClients, StringComparer.OrdinalIgnoreCase);
+        _setupSelectedClients.Clear();
 
         SetupDistroCheckboxes.Children.Clear();
 
-        if (distros.Count == 0)
+        if (_setupAvailableClients.Count == 0)
         {
             SetupDistroCheckboxes.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Text = "No WSL distros found. You can install packages later from Settings.",
+                Text = "No clients detected. Add an SSH client above, or configure clients later from Settings.",
                 Foreground = (System.Windows.Media.Brush)FindResource("TextMuted"),
                 TextWrapping = TextWrapping.Wrap
             });
             return;
         }
 
-        foreach (var distro in distros)
+        foreach (var client in _setupAvailableClients)
         {
-            _setupSelectedDistros[distro.Name] = false;
+            var isSelected = previousSelections.TryGetValue(client.Key, out var selected) && selected;
+            _setupSelectedClients[client.Key] = isSelected;
 
             var checkboxPanel = new System.Windows.Controls.StackPanel
             {
@@ -298,27 +319,25 @@ public partial class MainWindow
             var checkbox = new System.Windows.Controls.CheckBox
             {
                 Style = (System.Windows.Style)FindResource("ModernCheckBox"),
-                IsChecked = false,
+                IsChecked = isSelected,
                 Margin = new Thickness(0, 0, 12, 0),
-                Tag = distro.Name
+                Tag = client.Key
             };
 
-            checkbox.Checked += (s, e) =>
+            checkbox.Checked += (_, _) =>
             {
-                if (checkbox.Tag is string name) _setupSelectedDistros[name] = true;
+                if (checkbox.Tag is string key)
+                    _setupSelectedClients[key] = true;
             };
-            checkbox.Unchecked += (s, e) =>
+            checkbox.Unchecked += (_, _) =>
             {
-                if (checkbox.Tag is string name) _setupSelectedDistros[name] = false;
+                if (checkbox.Tag is string key)
+                    _setupSelectedClients[key] = false;
             };
-
-            var label = distro.Version.Length > 0
-                ? $"{distro.Name} (WSL{distro.Version})"
-                : distro.Name;
 
             var nameText = new System.Windows.Controls.TextBlock
             {
-                Text = label,
+                Text = client.Label,
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = (System.Windows.Media.Brush)FindResource("TextPrimary")
             };
@@ -329,11 +348,75 @@ public partial class MainWindow
         }
     }
 
+    private async Task<List<SetupClientInstallTarget>> QuerySetupClientsAsync()
+    {
+        var clients = new List<SetupClientInstallTarget>();
+
+        try
+        {
+            var distros = await _wslUserSpaceInterop.QueryDistrosAsync();
+            foreach (var distro in distros.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var versionSuffix = distro.Version.Length > 0 ? $" (WSL{distro.Version})" : string.Empty;
+                var runningSuffix = distro.IsRunning ? string.Empty : " [not running]";
+                var label = $"WSL | {distro.Name}{versionSuffix}{runningSuffix}";
+                clients.Add(new SetupClientInstallTarget(
+                    KeyForSetupClient(AttachTargetType.Wsl, distro.Name),
+                    AttachTargetType.Wsl,
+                    distro.Name,
+                    label));
+            }
+        }
+        catch
+        {
+            // Keep partial list if WSL query fails.
+        }
+
+        var sshClients = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            foreach (var host in _sshConfigParser.GetHostAliases())
+                sshClients.Add(host);
+        }
+        catch
+        {
+            // Keep only custom hosts if SSH config parsing fails.
+        }
+
+        foreach (var custom in _setupCustomSshClients)
+            sshClients.Add(custom);
+
+        foreach (var host in sshClients.OrderBy(h => h, StringComparer.OrdinalIgnoreCase))
+        {
+            clients.Add(new SetupClientInstallTarget(
+                KeyForSetupClient(AttachTargetType.Ssh, host),
+                AttachTargetType.Ssh,
+                host,
+                $"SSH | {host}"));
+        }
+
+        return clients;
+    }
+
+    private static string KeyForSetupClient(AttachTargetType type, string name)
+        => $"{type}:{name.Trim()}";
+
+    private async void SetupAddClient_OnClick(object sender, RoutedEventArgs e)
+    {
+        var host = (SetupAddClientHostText.Text ?? string.Empty).Trim();
+        if (host.Length == 0)
+            return;
+
+        _setupCustomSshClients.Add(host);
+        SetupAddClientHostText.Text = string.Empty;
+        await PopulateClientCheckboxesAsync();
+    }
+
     private void SetupInstallPackages_OnClick(object sender, RoutedEventArgs e)
     {
-        var selected = _setupSelectedDistros
-            .Where(kv => kv.Value)
-            .Select(kv => kv.Key)
+        var selected = _setupAvailableClients
+            .Where(client => _setupSelectedClients.TryGetValue(client.Key, out var isSelected) && isSelected)
             .ToList();
 
         if (selected.Count == 0)
@@ -343,10 +426,10 @@ public partial class MainWindow
             return;
         }
 
-        _ = RunDistroInstallAsync(selected);
+        _ = RunClientInstallAsync(selected);
     }
 
-    private async Task RunDistroInstallAsync(IReadOnlyList<string> distros)
+    private async Task RunClientInstallAsync(IReadOnlyList<SetupClientInstallTarget> clients)
     {
         SetupDistroSelectionView.Visibility = Visibility.Collapsed;
         SetupDistroLogView.Visibility = Visibility.Visible;
@@ -365,40 +448,74 @@ public partial class MainWindow
         try
         {
             var packages = new[] { "usbutils", "linux-tools-generic", "hwdata" };
-            foreach (var distroName in distros)
+            foreach (var client in clients)
             {
-                AppendInstallLog($"\n>>> Configuring {distroName}...", false);
-                AppendInstallLog("  $ apt-get update", false);
+                AppendInstallLog($"\n>>> Configuring {client.Label}...", false);
 
-                var updateExitCode = await _wslUserSpaceInterop.RunCommandInDistroStreamingAsync(
-                    distroName,
-                    "apt-get update",
-                    (line, isError) =>
-                    {
-                        AppendInstallLog(line, isError);
-                        return Task.CompletedTask;
-                    },
-                    ct,
-                    user: "root"
-                );
-
-                if (updateExitCode != 0)
-                    AppendInstallLog($"  ! apt-get update exited with code {updateExitCode}", false);
-
+                int updateExitCode;
+                int installExitCode;
                 var packageList = string.Join(" ", packages);
-                AppendInstallLog($"\n  $ apt-get install -y {packageList}", false);
+                if (client.Type == AttachTargetType.Wsl)
+                {
+                    AppendInstallLog("  $ apt-get update", false);
+                    updateExitCode = await _wslUserSpaceInterop.RunCommandInDistroStreamingAsync(
+                        client.Name,
+                        "apt-get update",
+                        (line, isError) =>
+                        {
+                            AppendInstallLog(line, isError);
+                            return Task.CompletedTask;
+                        },
+                        ct,
+                        user: "root"
+                    );
 
-                var installExitCode = await _wslUserSpaceInterop.RunCommandInDistroStreamingAsync(
-                    distroName,
-                    $"apt-get install -y {packageList}",
-                    (line, isError) =>
-                    {
-                        AppendInstallLog(line, isError);
-                        return Task.CompletedTask;
-                    },
-                    ct,
-                    user: "root"
-                );
+                    if (updateExitCode != 0)
+                        AppendInstallLog($"  ! apt-get update exited with code {updateExitCode}", false);
+
+                    AppendInstallLog($"\n  $ apt-get install -y {packageList}", false);
+                    installExitCode = await _wslUserSpaceInterop.RunCommandInDistroStreamingAsync(
+                        client.Name,
+                        $"apt-get install -y {packageList}",
+                        (line, isError) =>
+                        {
+                            AppendInstallLog(line, isError);
+                            return Task.CompletedTask;
+                        },
+                        ct,
+                        user: "root"
+                    );
+                }
+                else
+                {
+                    var updateCommand = "sh -lc \"sudo -n apt-get update || apt-get update\"";
+                    var installCommand = $"sh -lc \"sudo -n apt-get install -y {packageList} || apt-get install -y {packageList}\"";
+
+                    AppendInstallLog($"  $ ssh {client.Name} {updateCommand}", false);
+                    updateExitCode = await RunSshCommandStreamingAsync(
+                        client.Name,
+                        updateCommand,
+                        (line, isError) =>
+                        {
+                            AppendInstallLog(line, isError);
+                            return Task.CompletedTask;
+                        },
+                        ct);
+
+                    if (updateExitCode != 0)
+                        AppendInstallLog($"  ! apt-get update exited with code {updateExitCode}", false);
+
+                    AppendInstallLog($"\n  $ ssh {client.Name} {installCommand}", false);
+                    installExitCode = await RunSshCommandStreamingAsync(
+                        client.Name,
+                        installCommand,
+                        (line, isError) =>
+                        {
+                            AppendInstallLog(line, isError);
+                            return Task.CompletedTask;
+                        },
+                        ct);
+                }
 
                 if (installExitCode != 0)
                 {
@@ -414,7 +531,7 @@ public partial class MainWindow
             success = !hadErrors;
             AppendInstallLog(
                 success
-                    ? "\nok All distros configured successfully."
+                    ? "\nok Selected clients configured successfully."
                     : "\nx Configuration finished with errors. Review the output above.",
                 isError: !success
             );
@@ -441,6 +558,68 @@ public partial class MainWindow
 
         if (success)
             SetupNextButton.Content = "Next →";
+    }
+
+    private static async Task<int> RunSshCommandStreamingAsync(
+        string host,
+        string command,
+        Func<string, bool, Task> onLine,
+        CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "ssh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("BatchMode=yes");
+        psi.ArgumentList.Add(host);
+        psi.ArgumentList.Add(command);
+
+        using var process = Process.Start(psi);
+        if (process is null)
+            return -1;
+
+        using var registration = ct.Register(() =>
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // ignore cancellation race during process shutdown
+            }
+        });
+
+        var outputTask = ReadLinesAsync(process.StandardOutput, onLine, isError: false, ct);
+        var errorTask = ReadLinesAsync(process.StandardError, onLine, isError: true, ct);
+
+        await process.WaitForExitAsync(ct);
+        await Task.WhenAll(outputTask, errorTask);
+        return process.ExitCode;
+    }
+
+    private static async Task ReadLinesAsync(
+        StreamReader reader,
+        Func<string, bool, Task> onLine,
+        bool isError,
+        CancellationToken ct)
+    {
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null)
+                break;
+
+            await onLine(line, isError);
+        }
     }
 
     private void AppendInstallLog(string line, bool isError)

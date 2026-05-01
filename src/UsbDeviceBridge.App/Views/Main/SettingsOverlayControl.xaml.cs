@@ -24,6 +24,10 @@ public partial class SettingsOverlayControl : UserControl
 
     public StackPanel SectionsRoot => SettingsSectionsRoot;
 
+    public TextBox AddClientHostText => SettingsAddClientHostText;
+
+    public StackPanel ClientListHost => SettingsClientListHost;
+
     public event RoutedEventHandler? CloseRequested;
 
     public event TextChangedEventHandler? SearchTextChanged;
@@ -35,6 +39,8 @@ public partial class SettingsOverlayControl : UserControl
     public event RoutedEventHandler? ResetSetupRequested;
 
     public event RoutedEventHandler? CopyVersionInfoRequested;
+
+    public event RoutedEventHandler? AddClientRequested;
 
     private void CloseSettingsButton_OnClick(object sender, RoutedEventArgs e)
         => CloseRequested?.Invoke(sender, e);
@@ -53,4 +59,7 @@ public partial class SettingsOverlayControl : UserControl
 
     private void CopyVersionInfo_OnClick(object sender, RoutedEventArgs e)
         => CopyVersionInfoRequested?.Invoke(sender, e);
+
+    private void AddClient_OnClick(object sender, RoutedEventArgs e)
+        => AddClientRequested?.Invoke(sender, e);
 }

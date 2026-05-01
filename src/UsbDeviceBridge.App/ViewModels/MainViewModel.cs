@@ -18,15 +18,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly LocalDeviceManager _deviceManager;
     private readonly AppRememberedDeviceStore _rememberedStore;
     private readonly LocalAutoAttachManager _autoAttachManager;
+    private readonly WslUserSpaceInterop _wslUserSpaceInterop;
+    private readonly SshConfigParser _sshConfigParser;
     private readonly NotificationService _notificationService;
     private readonly Func<Task<bool>>? _triggerServiceRestartAsync;
     private readonly Func<string>? _getFirewallFixPolicy;
     private readonly Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? _requestFirewallConsentAsync;
     private readonly Func<ForceRetryRequest, Task<ForceRetryDecision>>? _requestForceRetryAsync;
+    private readonly Func<IReadOnlyList<string>>? _getAdditionalSshClients;
+    private readonly Func<string, string?>? _getLastClientForDevice;
+    private readonly Action<string, string>? _saveClientForDevice;
     private readonly Func<bool> _isWindowFocused;
     private readonly Func<string, string, Models.NotificationSeverity, Task> _dispatchOsNotificationAsync;
     private readonly Dictionary<string, Usbdevicebridge.V1.Device> _streamDevices = new(StringComparer.Ordinal);
     private readonly HashSet<string> _busyIds = new();
+    private TargetCatalog _lastTargetCatalog = new([], [], []);
 
     private CancellationTokenSource? _streamCts;
     private Task? _streamTask;
@@ -65,21 +71,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         LocalDeviceManager deviceManager,
         AppRememberedDeviceStore rememberedStore,
         LocalAutoAttachManager autoAttachManager,
+        WslUserSpaceInterop? wslUserSpaceInterop = null,
+        SshConfigParser? sshConfigParser = null,
         Func<Task<bool>>? triggerServiceRestartAsync = null,
         Func<string>? getFirewallFixPolicy = null,
         Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? requestFirewallConsentAsync = null,
         Func<ForceRetryRequest, Task<ForceRetryDecision>>? requestForceRetryAsync = null,
         Func<bool>? isWindowFocused = null,
-        Func<string, string, Models.NotificationSeverity, Task>? dispatchOsNotificationAsync = null)
+        Func<string, string, Models.NotificationSeverity, Task>? dispatchOsNotificationAsync = null,
+        Func<IReadOnlyList<string>>? getAdditionalSshClients = null,
+        Func<string, string?>? getLastClientForDevice = null,
+        Action<string, string>? saveClientForDevice = null)
     {
         _client = client;
         _deviceManager = deviceManager;
         _rememberedStore = rememberedStore;
         _autoAttachManager = autoAttachManager;
+        _wslUserSpaceInterop = wslUserSpaceInterop ?? new WslUserSpaceInterop();
+        _sshConfigParser = sshConfigParser ?? new SshConfigParser();
         _triggerServiceRestartAsync = triggerServiceRestartAsync;
         _getFirewallFixPolicy = getFirewallFixPolicy;
         _requestFirewallConsentAsync = requestFirewallConsentAsync;
         _requestForceRetryAsync = requestForceRetryAsync;
+        _getAdditionalSshClients = getAdditionalSshClients;
+        _getLastClientForDevice = getLastClientForDevice;
+        _saveClientForDevice = saveClientForDevice;
         _isWindowFocused = isWindowFocused ?? (() => true);
         _dispatchOsNotificationAsync = dispatchOsNotificationAsync ?? ((_, _, _) => Task.CompletedTask);
         _notificationService = new NotificationService();
@@ -181,7 +197,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             : "State then name";
 
         if (_streamDevices.Count > 0)
-            UpdateDeviceList(_streamDevices.Values);
+            UpdateDeviceList(_streamDevices.Values, _lastTargetCatalog);
     }
 
     public async Task InitializeAsync()
@@ -198,9 +214,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             var devices = await _deviceManager.GetDevicesAsync(CancellationToken.None);
             var remembered = _rememberedStore.Load();
+            var targetCatalog = await LoadTargetCatalogAsync(CancellationToken.None);
+            _lastTargetCatalog = targetCatalog;
             ApplyRememberedState(devices, remembered);
             ReplaceStreamSnapshot(devices);
-            UpdateDeviceList(devices);
+            UpdateDeviceList(devices, targetCatalog);
 
             StatusText = devices.Count == 1 ? "1 device" : $"{devices.Count} devices";
         }
@@ -223,6 +241,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var policy = NormalizeFirewallPolicy(_getFirewallFixPolicy?.Invoke());
+            var selectedTarget = dev.SelectedTarget;
+            var selectedWslDistro = selectedTarget.Type == AttachTargetType.Wsl
+                ? selectedTarget.Name
+                : string.Empty;
 
             // Device must be in "shared" state for attach; bind first if still "available".
             if (string.Equals(dev.State, "available", StringComparison.OrdinalIgnoreCase))
@@ -231,7 +253,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     dev.Description,
                     dev.InstanceId,
                     dev.BusId,
-                    string.Empty,
+                    selectedWslDistro,
                     isAutoAttach: false,
                     CancellationToken.None);
 
@@ -251,11 +273,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 dev.Description,
                 dev.InstanceId,
                 dev.BusId,
-                string.Empty,
+                selectedTarget,
                 policy,
                 isAutoAttach: false);
 
-            if (!response.Ok)
+            if (response.Ok)
+            {
+                if (!response.FirewallFixApplied)
+                    ShowOk($"Connected {dev.Description} → {FormatTarget(selectedTarget)}.");
+            }
+            else
             {
                 // Attach failed — unbind to avoid leaving device in "shared" state.
                 if (didBind)
@@ -313,7 +340,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     cancellationToken: CancellationToken.None);
 
                 if (unbindResp.Ok)
-                    ShowOk($"Disconnected {dev.Description}.");
+                    ShowOk($"Disconnected {dev.Description} from {FormatTarget(dev.SelectedTarget)}.");
                 else
                     ShowWarning($"Detached but unbind failed: {unbindResp.Message}");
             }
@@ -374,12 +401,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 }
 
                 _rememberedStore.Remove(dev.InstanceId);
-                ShowInfo($"Forgot {dev.Description}.");
+                ShowInfo($"Forgot {dev.Description} (was: {FormatTarget(dev.SelectedTarget)}).");
             }
             else
             {
-                _rememberedStore.AddOrUpdate(dev.InstanceId, string.Empty);
-                ShowInfo($"Remembered {dev.Description}.");
+                _rememberedStore.AddOrUpdate(dev.InstanceId, dev.SelectedTarget);
+                ShowInfo($"Remembered {dev.Description} → {FormatTarget(dev.SelectedTarget)}.");
             }
 
             await RefreshAsync();
@@ -483,9 +510,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 // Initial snapshot.
                 var snapshot = await _deviceManager.GetDevicesAsync(token);
                 var remembered = _rememberedStore.Load();
+                var targetCatalog = await LoadTargetCatalogAsync(token);
+                _lastTargetCatalog = targetCatalog;
                 ApplyRememberedState(snapshot, remembered);
                 ReplaceStreamSnapshot(snapshot);
-                UpdateDeviceList(snapshot);
+                UpdateDeviceList(snapshot, targetCatalog);
 
                 StatusText = snapshot.Count == 1 ? "1 device" : $"{snapshot.Count} devices";
 
@@ -499,6 +528,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     await Task.Delay(pollIntervalMs, token);
 
                     var current = await _deviceManager.GetDevicesAsync(token);
+                    targetCatalog = await LoadTargetCatalogAsync(token);
+                    _lastTargetCatalog = targetCatalog;
                     remembered = _rememberedStore.Load();
                     ApplyRememberedState(current, remembered);
 
@@ -530,7 +561,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
                     if (shouldFlush)
                     {
-                        UpdateDeviceList(current);
+                        UpdateDeviceList(current, targetCatalog);
                         ReplaceStreamSnapshot(current);
                         pending.Clear();
                         pendingSince = null;
@@ -609,14 +640,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void ApplyRememberedState(
         IReadOnlyList<Usbdevicebridge.V1.Device> devices,
-        Dictionary<string, string> remembered)
+        Dictionary<string, AttachTarget> remembered)
     {
         foreach (var dev in devices)
         {
             dev.Remembered = !string.IsNullOrEmpty(dev.InstanceId)
                 && remembered.ContainsKey(dev.InstanceId);
-            dev.PreferredDistro = dev.Remembered
-                && remembered.TryGetValue(dev.InstanceId, out var distro) ? distro : "";
+
+            if (dev.Remembered && remembered.TryGetValue(dev.InstanceId, out var target))
+            {
+                dev.Target = target;
+                dev.PreferredDistro = target.Type == AttachTargetType.Wsl ? target.Name : "";
+            }
+            else
+            {
+                dev.Target = new AttachTarget { Type = AttachTargetType.Wsl, Name = string.Empty };
+                dev.PreferredDistro = string.Empty;
+            }
         }
     }
 
@@ -634,7 +674,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _streamDevices[dev.InstanceId] = dev;
     }
 
-    private void UpdateDeviceList(IReadOnlyCollection<Usbdevicebridge.V1.Device> devices)
+    private void UpdateDeviceList(IReadOnlyCollection<Usbdevicebridge.V1.Device> devices, TargetCatalog targetCatalog)
     {
         var sorted = SortDevices(devices);
 
@@ -644,6 +684,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             foreach (var d in sorted)
             {
+                var savedClient = !string.IsNullOrWhiteSpace(d.InstanceId)
+                    ? _getLastClientForDevice?.Invoke(d.InstanceId)
+                    : null;
+
                 var vm = new DeviceViewModel
                 {
                     InstanceId = d.InstanceId,
@@ -653,11 +697,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     State = d.State,
                     Remembered = d.Remembered,
                     PreferredDistro = d.PreferredDistro,
+                    PreferredTargetType = d.Target?.Type ?? AttachTargetType.Wsl,
+                    PreferredTargetName = d.Target?.Name ?? string.Empty,
+                    AvailableClients = targetCatalog.ClientOptions,
                     IsAttaching = d.Attaching,
                     IsBusy = _busyIds.Contains(d.InstanceId),
                     DistroListReady = true,
-                    SelectedDistro = string.Empty,
+                    SelectedClient = ResolveInitialClientOption(d, targetCatalog, savedClient),
                 };
+
+                // Persist dropdown selection when the user changes it.
+                if (!string.IsNullOrWhiteSpace(vm.InstanceId) && _saveClientForDevice is not null)
+                {
+                    var instanceId = vm.InstanceId;
+                    vm.PropertyChanged += (_, e) =>
+                    {
+                        if (e.PropertyName == nameof(DeviceViewModel.SelectedClient)
+                            && !string.IsNullOrWhiteSpace(vm.SelectedClient))
+                        {
+                            _saveClientForDevice(instanceId, vm.SelectedClient);
+                        }
+                    };
+                }
 
                 Devices.Add(vm);
             }
@@ -668,6 +729,96 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private List<Usbdevicebridge.V1.Device> SortDevices(IEnumerable<Usbdevicebridge.V1.Device> devices)
         => DeviceSorter.Sort(devices, _sortOrder);
+
+    private async Task<TargetCatalog> LoadTargetCatalogAsync(CancellationToken ct)
+    {
+        IReadOnlyList<string> distros = [];
+        IReadOnlyList<string> discoveredSshHosts = [];
+
+        try
+        {
+            distros = (await _wslUserSpaceInterop.QueryDistrosAsync(ct))
+                .Select(d => d.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            // Keep empty list and allow attach validation to report exact cause.
+        }
+
+        try
+        {
+            discoveredSshHosts = _sshConfigParser
+                .GetHostAliases()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            // Keep empty list and allow ad-hoc mode.
+        }
+
+        var additionalSshHosts = (_getAdditionalSshClients?.Invoke() ?? [])
+            .Select(host => host?.Trim() ?? string.Empty)
+            .Where(host => host.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(host => host, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var sshHosts = discoveredSshHosts
+            .Concat(additionalSshHosts)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(host => host, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var clientOptions = distros.Select(d => $"WSL | {d}")
+            .Concat(sshHosts.Select(s => $"SSH | {s}"))
+            .ToArray();
+
+        return new TargetCatalog(distros, sshHosts, clientOptions);
+    }
+
+    private static string ResolveInitialClientOption(
+        Usbdevicebridge.V1.Device device,
+        TargetCatalog catalog,
+        string? savedClient = null)
+    {
+        // 1. Prefer the last-used dropdown selection saved to settings.
+        if (!string.IsNullOrWhiteSpace(savedClient)
+            && catalog.ClientOptions.Contains(savedClient, StringComparer.OrdinalIgnoreCase))
+        {
+            return catalog.ClientOptions.First(o =>
+                string.Equals(o, savedClient, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // 2. Fall back to the device's remembered/preferred target.
+        if (device.Target is { } target)
+        {
+            var targetName = (target.Name ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(targetName))
+            {
+                var targetOption = target.Type == AttachTargetType.Ssh
+                    ? $"SSH | {targetName}"
+                    : $"WSL | {targetName}";
+
+                if (catalog.ClientOptions.Contains(targetOption, StringComparer.OrdinalIgnoreCase))
+                    return targetOption;
+            }
+        }
+
+        var preferredDistro = (device.PreferredDistro ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(preferredDistro))
+        {
+            var wslOption = $"WSL | {preferredDistro}";
+            if (catalog.ClientOptions.Contains(wslOption, StringComparer.OrdinalIgnoreCase))
+                return wslOption;
+        }
+
+        return catalog.ClientOptions.FirstOrDefault() ?? string.Empty;
+    }
 
     private void SetListState(bool loading, bool empty, bool hasItems)
     {
@@ -782,11 +933,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         string description,
         string instanceId,
         string busId,
-        string distro,
+        AttachTarget target,
         string policy,
         bool isAutoAttach)
     {
-        var (ok, msg) = await _deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+        var (ok, msg) = await _deviceManager.AttachAsync(busId, target, CancellationToken.None);
+        var wslDistro = target.Type == AttachTargetType.Wsl ? target.Name : string.Empty;
 
         if (ok)
         {
@@ -804,7 +956,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 description,
                 instanceId,
                 busId,
-                distro,
+                wslDistro,
                 ForceRetryStage.Bind,
                 isAutoAttach);
 
@@ -831,7 +983,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 };
             }
 
-            var (retryAttachOk, retryAttachMsg) = await _deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+            var (retryAttachOk, retryAttachMsg) = await _deviceManager.AttachAsync(busId, target, CancellationToken.None);
             if (!retryAttachOk)
             {
                 return new AttachAttemptResult
@@ -850,7 +1002,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         // Detect firewall block and handle based on policy.
-        if (FirewallSignatureClassifier.IsFirewallBlock(msg))
+        // Firewall fix is only applicable to WSL/local targets; SSH targets route over an
+        // established tunnel and are not affected by the WSL vEthernet firewall profile.
+        if (target.Type == AttachTargetType.Wsl && FirewallSignatureClassifier.IsFirewallBlock(msg))
         {
             if (policy == "never")
             {
@@ -876,7 +1030,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     DeviceDescription: description,
                     InstanceId: instanceId,
                     BusId: busId,
-                    WslDistro: distro,
+                    WslDistro: wslDistro,
                     IsAutoAttach: isAutoAttach));
 
                 if (!decision.AllowNow)
@@ -888,7 +1042,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     };
 
                 // User approved; retry with "always".
-                return await AttachWithPolicyAsync(description, instanceId, busId, distro, "always", isAutoAttach);
+                return await AttachWithPolicyAsync(description, instanceId, busId, target, "always", isAutoAttach);
             }
 
             // policy == "always": call service to apply the fix then retry.
@@ -917,7 +1071,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
 
             // Retry after fix.
-            var (retryOk, retryMsg) = await _deviceManager.AttachAsync(busId, distro, CancellationToken.None);
+            var (retryOk, retryMsg) = await _deviceManager.AttachAsync(busId, target, CancellationToken.None);
             if (!retryOk)
                 return new AttachAttemptResult
                 {
@@ -929,7 +1083,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (isAutoAttach)
                 ShowInfo(AttachToastMessages.AutoAttachFirewallFixApplied(instanceId));
             else
-                ShowOk(AttachToastMessages.FirewallFixAppliedAndSucceeded(description, distro));
+                ShowOk(AttachToastMessages.FirewallFixAppliedAndSucceeded(description, wslDistro));
 
             return new AttachAttemptResult { Ok = true, FirewallFixApplied = true };
         }
@@ -945,6 +1099,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             AttachFailReason.StillFailedAfterFix => AttachToastMessages.StillFailedAfterFix(description),
             _ => response.Message.Length > 0 ? response.Message : "Attach failed.",
         };
+
+    private static string FormatTarget(AttachTarget? target)
+    {
+        if (target is null || string.IsNullOrWhiteSpace(target.Name))
+            return "WSL";
+        return target.Type == AttachTargetType.Ssh
+            ? $"SSH | {target.Name}"
+            : $"WSL | {target.Name}";
+    }
 
     private async Task<AttachAttemptResult> BindWithForceRetryIfNeededAsync(
         string description,
@@ -1041,4 +1204,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         public bool FirewallFixApplied { get; set; }
         public bool UseWarning { get; set; }
     }
+
+    private sealed record TargetCatalog(IReadOnlyList<string> WslDistros, IReadOnlyList<string> SshHosts, IReadOnlyList<string> ClientOptions);
 }
+
