@@ -99,7 +99,6 @@ jobs:
         run: >
           dotnet build src/UsbDeviceBridge.Installer/UsbDeviceBridge.Installer.wixproj
           -c Release
-          --no-restore
           -p:PackageVersion=${{ steps.version.outputs.PACKAGE_VERSION }}
 
       - name: Compute checksum
