@@ -1,0 +1,65 @@
+namespace UsbDeviceBridge.App.Services;
+
+/// <summary>
+/// Centralized, user-actionable toast message text for firewall-recovery outcomes
+/// during manual attach and auto-attach operations.
+/// All messages are kept here to prevent duplicated copy across view-models and services.
+/// </summary>
+public static class AttachToastMessages
+{
+    // ── Manual attach ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Policy (ask or never) prevented the service from applying the firewall fix automatically.
+    /// </summary>
+    public static string PolicyPrevented(string deviceDescription)
+        => $"Firewall may be blocking \"{deviceDescription}\". "
+         + "Enable 'Auto-fix firewall' in Settings or approve the fix when prompted.";
+
+    public static string PolicyPreventedAutoAttach(string deviceId)
+        => $"Auto-attach needs firewall-recovery approval for device {deviceId}. "
+         + "Open the prompt or set Firewall recovery policy to Always in Settings.";
+
+    /// <summary>
+    /// The service attempted the firewall fix but the PowerShell command failed.
+    /// </summary>
+    public static string FirewallFixFailed(string deviceDescription)
+        => $"Automatic firewall recovery failed for \"{deviceDescription}\". "
+         + "Check Windows Firewall settings or try again.";
+
+    /// <summary>
+    /// The firewall fix was applied but usbipd attach still failed on the retry.
+    /// </summary>
+    public static string StillFailedAfterFix(string deviceDescription)
+        => $"Firewall fix applied but \"{deviceDescription}\" still failed to attach. "
+         + "Check Windows Firewall and WSL network settings.";
+
+    /// <summary>
+    /// The firewall fix was applied and the attach retry succeeded.
+    /// </summary>
+    public static string FirewallFixAppliedAndSucceeded(string deviceDescription, string distro)
+        => $"Firewall fix applied — \"{deviceDescription}\" connected to {distro}.";
+
+    // ── Auto-attach (notifications from the background service) ──────────────
+
+    /// <summary>
+    /// Auto-attach succeeded after applying the firewall fix.
+    /// Used when the service emits a success notification event.
+    /// </summary>
+    public static string AutoAttachFirewallFixApplied(string deviceId)
+        => $"Firewall fix applied — device {deviceId} auto-attached after retry.";
+
+    /// <summary>
+    /// Auto-attach still failing after the firewall fix was applied.
+    /// </summary>
+    public static string AutoAttachStillFailedAfterFix(string deviceId)
+        => $"Auto-attach still failing for device {deviceId} after firewall fix. "
+         + "Check firewall settings.";
+
+    /// <summary>
+    /// The firewall fix itself failed during an auto-attach attempt.
+    /// </summary>
+    public static string AutoAttachFirewallFixFailed(string deviceId)
+        => $"Automatic firewall recovery failed during auto-attach for device {deviceId}. "
+         + "Check Windows Firewall settings.";
+}

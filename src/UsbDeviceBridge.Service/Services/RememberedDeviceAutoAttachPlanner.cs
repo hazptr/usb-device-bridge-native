@@ -16,7 +16,10 @@ public static class RememberedDeviceAutoAttachPlanner
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in WslDistroParser.ParseVerbose(stdout))
-            result.Add(entry.Name);
+        {
+            if (entry.RuntimeState == WslDistroRuntimeState.Running)
+                result.Add(entry.Name);
+        }
 
         return result;
     }

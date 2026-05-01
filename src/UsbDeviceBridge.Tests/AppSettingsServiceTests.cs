@@ -94,6 +94,56 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Empty(loaded.DeviceDistroSelections);
     }
 
+    [Fact]
+    public void Load_DefaultsFirewallFixPolicy_ToAsk()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var service = new AppSettingsService(path);
+
+        var loaded = service.Load();
+
+        Assert.Equal(FirewallFixPolicies.Ask, loaded.FirewallFixPolicy);
+    }
+
+    [Theory]
+    [InlineData("always", "always")]
+    [InlineData("ALWAYS", "always")]
+    [InlineData("never",  "never")]
+    [InlineData("NEVER",  "never")]
+    [InlineData("ask",    "ask")]
+    [InlineData("unknown","ask")]
+    [InlineData("",       "ask")]
+    [InlineData(null,     "ask")]
+    public void FirewallFixPolicies_Normalize_ReturnsExpected(string? input, string expected)
+    {
+        Assert.Equal(expected, FirewallFixPolicies.Normalize(input));
+    }
+
+    [Fact]
+    public void Save_AndLoad_RoundTripsFirewallFixPolicy()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var service = new AppSettingsService(path);
+
+        service.Save(new AppSettings { FirewallFixPolicy = FirewallFixPolicies.Always });
+        var loaded = service.Load();
+
+        Assert.Equal(FirewallFixPolicies.Always, loaded.FirewallFixPolicy);
+    }
+
+    [Fact]
+    public void Load_NormalizesInvalidFirewallFixPolicy_ToAsk()
+    {
+        var path = Path.Combine(_tempDir, "settings.json");
+        var json = JsonSerializer.Serialize(new { FirewallFixPolicy = "invalid-value" });
+        File.WriteAllText(path, json);
+
+        var service = new AppSettingsService(path);
+        var loaded = service.Load();
+
+        Assert.Equal(FirewallFixPolicies.Ask, loaded.FirewallFixPolicy);
+    }
+
     public void Dispose()
     {
         try

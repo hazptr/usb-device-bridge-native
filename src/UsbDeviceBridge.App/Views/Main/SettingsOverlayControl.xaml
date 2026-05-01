@@ -344,7 +344,7 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowServiceStartupMode"
                                       Tag="service startup mode automatic on-demand manual"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -357,6 +357,22 @@
                                               Width="190"
                                               ItemsSource="{Binding ServiceStartupModes}"
                                               SelectedItem="{Binding ServiceStartupModeSelected, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowFirewallRecoveryPolicy"
+                                      Tag="firewall recovery policy ask always never"
+                                      Margin="0,0,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Firewall recovery policy"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              Style="{StaticResource DistroCombo}"
+                                              Width="190"
+                                              ItemsSource="{Binding FirewallFixPolicyOptions}"
+                                              SelectedItem="{Binding FirewallFixPolicySelected, Mode=TwoWay}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>

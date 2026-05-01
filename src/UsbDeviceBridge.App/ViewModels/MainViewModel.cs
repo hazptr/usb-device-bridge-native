@@ -17,8 +17,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly BridgeServiceClient _client;
     private readonly NotificationService _notificationService;
     private readonly Func<Task<bool>>? _triggerServiceRestartAsync;
+    private readonly Func<string>? _getFirewallFixPolicy;
+    private readonly Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? _requestFirewallConsentAsync;
     private readonly Dictionary<string, Usbdevicebridge.V1.Device> _streamDevices = new(StringComparer.Ordinal);
     private readonly HashSet<string> _busyIds = new();
+    private readonly HashSet<string> _pendingAutoFirewallConsent = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _distroSelections = new();
     private readonly DistroLoader _distroLoader;
 
@@ -34,7 +37,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public event Action? ToastDismissRequested;
 
     public ObservableCollection<DeviceViewModel> Devices { get; } = new();
-    public ObservableCollection<string> Distros { get; } = new();
+    public ObservableCollection<DistroOption> Distros { get; } = new();
 
     public NotificationService NotificationService => _notificationService;
 
@@ -53,10 +56,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private Visibility _listVisibility = Visibility.Collapsed;
     [ObservableProperty] private Visibility _emptyVisibility = Visibility.Collapsed;
 
-    public MainViewModel(BridgeServiceClient client, Func<Task<bool>>? triggerServiceRestartAsync = null)
+    public MainViewModel(
+        BridgeServiceClient client,
+        Func<Task<bool>>? triggerServiceRestartAsync = null,
+        Func<string>? getFirewallFixPolicy = null,
+        Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? requestFirewallConsentAsync = null)
     {
         _client = client;
         _triggerServiceRestartAsync = triggerServiceRestartAsync;
+        _getFirewallFixPolicy = getFirewallFixPolicy;
+        _requestFirewallConsentAsync = requestFirewallConsentAsync;
         _notificationService = new NotificationService();
         _distroLoader = new DistroLoader(client, Distros);
     }
@@ -202,23 +211,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!_distroLoader.IsDistroRunning(dev.SelectedDistro))
+        {
+            ShowError($"WSL distro '{dev.SelectedDistro}' is not running.");
+            return;
+        }
+
         _busyIds.Add(dev.InstanceId);
         dev.IsBusy = true;
 
         try
         {
-            var response = await _client.Device.AttachDeviceAsync(new AttachDeviceRequest
-            {
-                BusId = dev.BusId,
-                WslDistro = dev.SelectedDistro,
-                InstanceId = dev.InstanceId,
-                Remember = false,
-            });
+            var policy = NormalizeFirewallPolicy(_getFirewallFixPolicy?.Invoke());
+            var response = await AttachWithPolicyAsync(
+                dev.Description,
+                dev.InstanceId,
+                dev.BusId,
+                dev.SelectedDistro,
+                policy,
+                isAutoAttach: false);
 
-            if (response.Ok)
-                ShowOk($"Connected {dev.Description} to {dev.SelectedDistro}.");
-            else
-                ShowError(response.Message.Length > 0 ? response.Message : "Attach failed.");
+            if (!response.Ok)
+                ShowError(MapManualAttachError(dev.Description, response));
         }
         catch (RpcException ex)
         {
@@ -349,6 +363,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
                 await foreach (var update in stream.ResponseStream.ReadAllAsync(token))
                 {
+                    // Notification events from the service (e.g. auto-attach firewall outcomes)
+                    // are forwarded as toasts and don't affect device state.
+                    if (string.Equals(update.EventType, "notification", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (string.Equals(update.NotificationCode, "auto_attach_firewall_consent_required", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await HandleAutoAttachFirewallConsentAsync(update);
+                            continue;
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(update.NotificationMessage))
+                        {
+                            var (toastKind, severity) = update.NotificationSeverity?.ToLowerInvariant() switch
+                            {
+                                "error"   => (ToastKind.Error,   NotificationSeverity.Error),
+                                "info"    => (ToastKind.Info,    NotificationSeverity.Info),
+                                _         => (ToastKind.Warning, NotificationSeverity.Warning),
+                            };
+                            ShowToast(update.NotificationMessage, toastKind, severity);
+                        }
+                        continue;
+                    }
+
                     ApplyDeviceEvent(update);
                     UpdateDeviceList(_streamDevices.Values);
 
@@ -432,6 +469,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     DistroListReady = Distros.Count > 0,
                     SelectedDistro = ChooseInitialDistro(d, selectedDistro),
                 };
+                vm.SelectedDistroIsRunning = _distroLoader.IsDistroRunning(vm.SelectedDistro);
 
                 vm.PropertyChanged += (_, e) =>
                 {
@@ -439,6 +477,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                         && !string.IsNullOrWhiteSpace(vm.InstanceId)
                         && !string.IsNullOrWhiteSpace(vm.SelectedDistro))
                     {
+                        vm.SelectedDistroIsRunning = _distroLoader.IsDistroRunning(vm.SelectedDistro);
                         _distroSelections[vm.InstanceId] = vm.SelectedDistro;
                         DeviceDistroSelectionChanged?.Invoke(vm.InstanceId, vm.SelectedDistro);
                     }
@@ -453,40 +492,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private string ChooseInitialDistro(Usbdevicebridge.V1.Device device, string? savedSelection)
     {
-        if (!string.IsNullOrWhiteSpace(savedSelection) && Distros.Contains(savedSelection))
+        if (!string.IsNullOrWhiteSpace(savedSelection) && Distros.Any(d => string.Equals(d.Name, savedSelection, StringComparison.OrdinalIgnoreCase)))
             return savedSelection;
 
-        if (!string.IsNullOrWhiteSpace(device.PreferredDistro) && Distros.Contains(device.PreferredDistro))
+        if (!string.IsNullOrWhiteSpace(device.PreferredDistro) && Distros.Any(d => string.Equals(d.Name, device.PreferredDistro, StringComparison.OrdinalIgnoreCase)))
             return device.PreferredDistro;
 
-        return Distros.FirstOrDefault() ?? string.Empty;
+        return Distros.FirstOrDefault()?.Name ?? string.Empty;
     }
 
     private List<Usbdevicebridge.V1.Device> SortDevices(IEnumerable<Usbdevicebridge.V1.Device> devices)
-    {
-        if (string.Equals(_sortOrder, "Name", StringComparison.OrdinalIgnoreCase))
-        {
-            return devices
-                .OrderBy(d => d.Description, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(d => d.InstanceId, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        return devices
-            .OrderBy(d => GetStateRank(d.State))
-            .ThenBy(d => d.Description, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(d => d.InstanceId, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static int GetStateRank(string state) => state.ToLowerInvariant() switch
-    {
-        "attached" => 0,
-        "shared" => 1,
-        "available" => 2,
-        "offline" => 3,
-        _ => 4,
-    };
+        => DeviceSorter.Sort(devices, _sortOrder);
 
     private void SetListState(bool loading, bool empty, bool hasItems)
     {
@@ -568,7 +584,156 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void ShowOk(string message) => ShowToast(message, ToastKind.Success, NotificationSeverity.Info);
     private void ShowInfo(string message) => ShowToast(message, ToastKind.Info, NotificationSeverity.Info);
+    private void ShowWarning(string message) => ShowToast(message, ToastKind.Warning, NotificationSeverity.Warning);
     private void ShowError(string message) => ShowToast(message, ToastKind.Error, NotificationSeverity.Error);
+
+    private static string NormalizeFirewallPolicy(string? value)
+    {
+        if (string.Equals(value, "always", StringComparison.OrdinalIgnoreCase)) return "always";
+        if (string.Equals(value, "never", StringComparison.OrdinalIgnoreCase)) return "never";
+        return "ask";
+    }
+
+    private async Task<AttachDeviceResponse> SendAttachAsync(
+        string instanceId,
+        string busId,
+        string distro,
+        string firewallPolicy)
+    {
+        return await _client.Device.AttachDeviceAsync(new AttachDeviceRequest
+        {
+            BusId = busId,
+            WslDistro = distro,
+            InstanceId = instanceId,
+            Remember = false,
+            FirewallFixPolicy = firewallPolicy,
+        });
+    }
+
+    private async Task<AttachDeviceResponse> AttachWithPolicyAsync(
+        string description,
+        string instanceId,
+        string busId,
+        string distro,
+        string policy,
+        bool isAutoAttach)
+    {
+        var response = await SendAttachAsync(instanceId, busId, distro, policy);
+        if (response.Ok)
+        {
+            if (isAutoAttach)
+            {
+                var msg = response.FirewallFixApplied
+                    ? AttachToastMessages.AutoAttachFirewallFixApplied(instanceId)
+                    : $"Auto-attached {description} to {distro}.";
+                ShowInfo(msg);
+            }
+            else
+            {
+                if (response.FirewallFixApplied)
+                    ShowOk(AttachToastMessages.FirewallFixAppliedAndSucceeded(description, distro));
+                else
+                    ShowOk($"Connected {description} to {distro}.");
+            }
+            return response;
+        }
+
+        if (response.FailReason != AttachFailReason.PolicyPrevented || policy != "ask" || _requestFirewallConsentAsync is null)
+            return response;
+
+        var decision = await _requestFirewallConsentAsync(new FirewallConsentRequest(
+            DeviceDescription: description,
+            InstanceId: instanceId,
+            BusId: busId,
+            WslDistro: distro,
+            IsAutoAttach: isAutoAttach));
+
+        if (!decision.AllowNow)
+            return response;
+
+        return await AttachWithPolicyAsync(description, instanceId, busId, distro, "always", isAutoAttach);
+    }
+
+    private string MapManualAttachError(string description, AttachDeviceResponse response)
+        => response.FailReason switch
+        {
+            AttachFailReason.PolicyPrevented => AttachToastMessages.PolicyPrevented(description),
+            AttachFailReason.FirewallFixFailed => AttachToastMessages.FirewallFixFailed(description),
+            AttachFailReason.StillFailedAfterFix => AttachToastMessages.StillFailedAfterFix(description),
+            _ => response.Message.Length > 0 ? response.Message : "Attach failed.",
+        };
+
+    private string MapAutoAttachError(string instanceId, AttachDeviceResponse response)
+        => response.FailReason switch
+        {
+            AttachFailReason.PolicyPrevented => AttachToastMessages.PolicyPreventedAutoAttach(instanceId),
+            AttachFailReason.FirewallFixFailed => AttachToastMessages.AutoAttachFirewallFixFailed(instanceId),
+            AttachFailReason.StillFailedAfterFix => AttachToastMessages.AutoAttachStillFailedAfterFix(instanceId),
+            _ => response.Message.Length > 0 ? response.Message : $"Auto-attach failed for device {instanceId}.",
+        };
+
+    private async Task HandleAutoAttachFirewallConsentAsync(DeviceEvent update)
+    {
+        var instanceId = update.NotificationInstanceId?.Trim() ?? string.Empty;
+        var busId = update.NotificationBusId?.Trim() ?? string.Empty;
+        var distro = update.NotificationWslDistro?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(instanceId) || string.IsNullOrEmpty(busId) || string.IsNullOrEmpty(distro))
+        {
+            if (!string.IsNullOrWhiteSpace(update.NotificationMessage))
+                ShowWarning(update.NotificationMessage);
+            return;
+        }
+
+        if (_pendingAutoFirewallConsent.Contains(instanceId))
+            return;
+
+        _pendingAutoFirewallConsent.Add(instanceId);
+        try
+        {
+            _streamDevices.TryGetValue(instanceId, out var device);
+            var description = device?.Description ?? instanceId;
+            var policy = NormalizeFirewallPolicy(_getFirewallFixPolicy?.Invoke());
+
+            if (policy == "never")
+            {
+                ShowWarning(AttachToastMessages.PolicyPreventedAutoAttach(instanceId));
+                return;
+            }
+
+            if (policy == "ask")
+            {
+                if (_requestFirewallConsentAsync is null)
+                {
+                    ShowWarning(AttachToastMessages.PolicyPreventedAutoAttach(instanceId));
+                    return;
+                }
+
+                var consent = await _requestFirewallConsentAsync(new FirewallConsentRequest(
+                    DeviceDescription: description,
+                    InstanceId: instanceId,
+                    BusId: busId,
+                    WslDistro: distro,
+                    IsAutoAttach: true));
+                if (!consent.AllowNow)
+                {
+                    ShowWarning(AttachToastMessages.PolicyPreventedAutoAttach(instanceId));
+                    return;
+                }
+            }
+
+            var retry = await AttachWithPolicyAsync(description, instanceId, busId, distro, "always", isAutoAttach: true);
+            if (!retry.Ok)
+                ShowError(MapAutoAttachError(instanceId, retry));
+        }
+        catch (RpcException ex)
+        {
+            ShowError($"Auto-attach retry failed: {ex.Status.Detail}");
+        }
+        finally
+        {
+            _pendingAutoFirewallConsent.Remove(instanceId);
+        }
+    }
 
     public void Dispose()
     {

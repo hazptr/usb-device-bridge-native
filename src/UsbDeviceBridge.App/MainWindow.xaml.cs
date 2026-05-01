@@ -37,6 +37,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public IReadOnlyList<string> ServiceStartupModes { get; } = UsbDeviceBridge.App.Settings.ServiceStartupModes.All;
 
+    public IReadOnlyList<string> FirewallFixPolicyOptions { get; } =
+    [
+        UsbDeviceBridge.App.Settings.FirewallFixPolicies.Ask,
+        UsbDeviceBridge.App.Settings.FirewallFixPolicies.Always,
+        UsbDeviceBridge.App.Settings.FirewallFixPolicies.Never,
+    ];
+
     public string FrontendVersion { get; } =
         (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly())
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -218,6 +225,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    public string FirewallFixPolicySelected
+    {
+        get => _settings.FirewallFixPolicy;
+        set
+        {
+            var normalized = FirewallFixPolicies.Normalize(value);
+            if (string.Equals(_settings.FirewallFixPolicy, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _settings.FirewallFixPolicy = normalized;
+            _settingsService.Save(_settings);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FirewallFixPolicySelected)));
+        }
+    }
+
     public bool StartWithWindowsEnabled
     {
         get => _settings.StartWithWindows;
@@ -257,7 +279,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             new BridgeRememberedDeviceResetClient(_client.AutoAttach),
             _settingsService);
         _startupRegistry = new WindowsStartupRegistryService();
-        _vm = new MainViewModel(_client, RestartServiceFromRecoveryPanelAsync);
+        _vm = new MainViewModel(
+            _client,
+            RestartServiceFromRecoveryPanelAsync,
+            () => _settings.FirewallFixPolicy,
+            RequestFirewallConsentAsync);
         _vm.IsAutoRefresh = _settings.AutoRefreshEnabled;
         _vm.SetSortOrder(_settings.SortOrder);
         _vm.InitializeDistroSelections(_settings.DeviceDistroSelections);
@@ -707,5 +733,125 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         WindowState = WindowState == WindowState.Maximized
             ? WindowState.Normal
             : WindowState.Maximized;
+    }
+
+    private Task<FirewallConsentDecision> RequestFirewallConsentAsync(FirewallConsentRequest request)
+    {
+        var title = request.IsAutoAttach
+            ? "Auto-attach firewall recovery"
+            : "Firewall recovery";
+
+        var body = request.IsAutoAttach
+            ? $"Auto-attach for \"{request.DeviceDescription}\" appears blocked by Windows Firewall.\n\nAllow a one-time firewall adjustment and retry now?"
+            : $"Attach for \"{request.DeviceDescription}\" appears blocked by Windows Firewall.\n\nAllow a one-time firewall adjustment and retry now?";
+
+        var decision = ShowFirewallConsentDialog(title, body);
+        if (decision.RememberChoice)
+        {
+            _settings.FirewallFixPolicy = decision.AllowNow
+                ? FirewallFixPolicies.Always
+                : FirewallFixPolicies.Never;
+            _settingsService.Save(_settings);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FirewallFixPolicySelected)));
+        }
+
+        return Task.FromResult(decision);
+    }
+
+    private FirewallConsentDecision ShowFirewallConsentDialog(string title, string message)
+    {
+        var dialog = new Window
+        {
+            Owner = this,
+            Title = title,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Background = (System.Windows.Media.Brush)FindResource("SurfaceBg"),
+            MinWidth = 460,
+            MaxWidth = 620,
+        };
+
+        var border = new Border
+        {
+            BorderBrush = (System.Windows.Media.Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Background = (System.Windows.Media.Brush)FindResource("SurfaceBg"),
+            Padding = new Thickness(20),
+        };
+
+        var root = new StackPanel();
+        root.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 18,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (System.Windows.Media.Brush)FindResource("TextPrimary"),
+            Margin = new Thickness(0, 0, 0, 10),
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary"),
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var rememberCheck = new System.Windows.Controls.CheckBox
+        {
+            Content = "Remember my decision",
+            Style = (Style)FindResource("ModernCheckBox"),
+            Margin = new Thickness(0, 0, 0, 14),
+        };
+        root.Children.Add(rememberCheck);
+
+        var buttonRow = new System.Windows.Controls.StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+        };
+
+        var denyButton = new System.Windows.Controls.Button
+        {
+            Content = "Not now",
+            Style = (Style)FindResource("GhostBtn"),
+            Width = 110,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        var allowButton = new System.Windows.Controls.Button
+        {
+            Content = "Allow and retry",
+            Style = (Style)FindResource("AccentBtn"),
+            Width = 140,
+        };
+
+        var allow = false;
+        denyButton.Click += (_, _) =>
+        {
+            allow = false;
+            dialog.DialogResult = false;
+            dialog.Close();
+        };
+        allowButton.Click += (_, _) =>
+        {
+            allow = true;
+            dialog.DialogResult = true;
+            dialog.Close();
+        };
+
+        buttonRow.Children.Add(denyButton);
+        buttonRow.Children.Add(allowButton);
+        root.Children.Add(buttonRow);
+
+        border.Child = root;
+        dialog.Content = border;
+
+        _ = dialog.ShowDialog();
+        return new FirewallConsentDecision(
+            AllowNow: allow,
+            RememberChoice: rememberCheck.IsChecked == true);
     }
 }

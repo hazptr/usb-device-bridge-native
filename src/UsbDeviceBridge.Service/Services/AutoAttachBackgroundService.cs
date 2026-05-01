@@ -11,12 +11,14 @@ public sealed class AutoAttachBackgroundService(
     RememberedDeviceStore rememberedDeviceStore,
     AutoAttachActivityTracker autoAttachActivityTracker,
     AutoAttachAttemptCancellationRegistry autoAttachAttemptCancellationRegistry,
-    ServiceClientConnectionTracker connectionTracker
+    ServiceClientConnectionTracker connectionTracker,
+    AutoAttachNotificationStore notificationStore
 ) : BackgroundService
 {
     private readonly Dictionary<string, DateTimeOffset> _nextAttemptUtc = new();
     private readonly Dictionary<string, AutoAttachRetryState> _retryStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _availableDistros = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _firewallNotifiedIds = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset _nextDistroRefreshUtc;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -174,6 +176,29 @@ public sealed class AutoAttachBackgroundService(
                     _retryStates[instanceId] = AutoAttachRetryPolicy.RecordSuccess(now);
                     _nextAttemptUtc.Remove(instanceId);
                     autoAttachActivityTracker.ClearAttaching(instanceId);
+                    _firewallNotifiedIds.Remove(instanceId);
+                }
+                else if (FirewallSignatureClassifier.IsFirewallBlock(attachMsg))
+                {
+                    logger.LogWarning(
+                        "Auto-attach firewall block detected for {InstanceId}/{BusId}: {Message}",
+                        instanceId, busId, attachMsg);
+
+                    // Auto-attach cannot show UI directly. Emit one structured notification
+                    // so the UI can prompt for consent and trigger an attach retry.
+                    if (!_firewallNotifiedIds.Contains(instanceId))
+                    {
+                        notificationStore.Enqueue(
+                            message: $"Firewall may be blocking auto-attach for device {instanceId}.",
+                            severity: "warning",
+                            code: "auto_attach_firewall_consent_required",
+                            instanceId: instanceId,
+                            busId: busId,
+                            wslDistro: distro);
+                        _firewallNotifiedIds.Add(instanceId);
+                    }
+
+                    RecordFailure(instanceId, now, attachMsg);
                 }
                 else
                 {
@@ -265,6 +290,7 @@ public sealed class AutoAttachBackgroundService(
     {
         _nextAttemptUtc.Remove(instanceId);
         _retryStates.Remove(instanceId);
+        _firewallNotifiedIds.Remove(instanceId);
         autoAttachActivityTracker.ClearAttaching(instanceId);
     }
 

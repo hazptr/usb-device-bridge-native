@@ -130,6 +130,16 @@ public partial class MainWindow
         UpdateNotificationBadgeVisibility();
     }
 
+    private void CopyNotification_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button button)
+            return;
+
+        var message = button.Tag?.ToString();
+        if (!string.IsNullOrEmpty(message))
+            System.Windows.Clipboard.SetText(message);
+    }
+
     private void MarkAllAsRead_OnClick(object sender, RoutedEventArgs e)
     {
         _vm.NotificationService.MarkAllAsRead();

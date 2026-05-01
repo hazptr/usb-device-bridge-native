@@ -39,6 +39,8 @@ public partial class NotificationOverlayControl : UserControl
 
     public event RoutedEventHandler? DismissRequested;
 
+    public event RoutedEventHandler? CopyRequested;
+
     public event RoutedEventHandler? MarkAllAsReadRequested;
 
     public event RoutedEventHandler? ClearAllRequested;
@@ -51,6 +53,9 @@ public partial class NotificationOverlayControl : UserControl
 
     private void DismissNotification_OnClick(object sender, RoutedEventArgs e)
         => DismissRequested?.Invoke(sender, e);
+
+    private void CopyNotification_OnClick(object sender, RoutedEventArgs e)
+        => CopyRequested?.Invoke(sender, e);
 
     private void MarkAllAsRead_OnClick(object sender, RoutedEventArgs e)
         => MarkAllAsReadRequested?.Invoke(sender, e);

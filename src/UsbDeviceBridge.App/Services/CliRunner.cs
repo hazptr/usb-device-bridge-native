@@ -95,12 +95,22 @@ public static class CliRunner
     private static async Task DistrosCommand(BridgeServiceClient client)
     {
         var resp = await client.Device.QueryWslDistrosAsync(new QueryWslDistrosRequest());
-        if (resp.Distros.Count == 0)
+        if (resp.DistroStatuses.Count == 0 && resp.Distros.Count == 0)
         {
             Console.WriteLine("No WSL distros found (is WSL installed?).");
             return;
         }
         Console.WriteLine("WSL Distros:");
+        if (resp.DistroStatuses.Count > 0)
+        {
+            foreach (var d in resp.DistroStatuses)
+            {
+                var state = d.IsRunning ? "running" : "offline";
+                Console.WriteLine($"  {d.Name} ({state})");
+            }
+            return;
+        }
+
         foreach (var d in resp.Distros)
             Console.WriteLine($"  {d}");
     }

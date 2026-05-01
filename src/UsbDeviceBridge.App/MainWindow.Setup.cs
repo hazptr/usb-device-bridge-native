@@ -25,6 +25,8 @@ public partial class MainWindow
     private List<(string Name, string Status, string Message)>? _setupPrerequisitesStatus;
     private Dictionary<string, bool> _setupSelectedDistros = new();
     private CancellationTokenSource? _setupInstallCts;
+    private bool _setupPrerequisitesVerifiedInstalled;
+    private bool _deviceInitializationStarted;
 
     private Grid SetupStepOnePanel => SetupOverlay.StepOnePanel;
 
@@ -90,10 +92,31 @@ public partial class MainWindow
 
     private CheckBox SetupAutoUpdate => SetupOverlay.AutoUpdate;
 
+    private void InitializeSetupOverlayHandlers()
+    {
+        // Guard against duplicate subscriptions if initialization is called again.
+        SetupDarkCard.Click -= SetupThemeCard_OnClick;
+        SetupLightCard.Click -= SetupThemeCard_OnClick;
+        SetupBackButton.Click -= SetupBack_OnClick;
+        SetupNextButton.Click -= SetupNext_OnClick;
+        SetupInstallPackagesButton.Click -= SetupInstallPackages_OnClick;
+        SetupInstallStopButton.Click -= SetupInstallStop_OnClick;
+        SetupInstallStartOverButton.Click -= SetupInstallStartOver_OnClick;
+
+        SetupDarkCard.Click += SetupThemeCard_OnClick;
+        SetupLightCard.Click += SetupThemeCard_OnClick;
+        SetupBackButton.Click += SetupBack_OnClick;
+        SetupNextButton.Click += SetupNext_OnClick;
+        SetupInstallPackagesButton.Click += SetupInstallPackages_OnClick;
+        SetupInstallStopButton.Click += SetupInstallStop_OnClick;
+        SetupInstallStartOverButton.Click += SetupInstallStartOver_OnClick;
+    }
+
     private void ShowSetupOverlay()
     {
         _setupStepIndex = 0;
         _setupSelectedTheme = "Dark";
+        _setupPrerequisitesVerifiedInstalled = false;
         UpdateSetupStepUi();
         ApplySetupCardPreviews();
         ApplySetupThemeCardSelection();
@@ -128,7 +151,7 @@ public partial class MainWindow
         }
     }
 
-    private void SetupNext_OnClick(object sender, RoutedEventArgs e)
+    private async void SetupNext_OnClick(object sender, RoutedEventArgs e)
     {
         if (_setupStepIndex == 0)
         {
@@ -167,8 +190,57 @@ public partial class MainWindow
         _vm.IsAutoRefresh = _settings.AutoRefreshEnabled;
         _settingsService.Save(_settings);
 
-        _ = _vm.InitializeAsync();
-        DismissSetupOverlay();
+        await DismissSetupOverlayAsync();
+        await TryInitializeDevicesAfterPrerequisitesAsync(verifyWithService: false);
+    }
+
+    private async Task<bool> QueryPrerequisitesInstalledAsync()
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(8);
+            var response = await _client.Setup.CheckPrerequisitesAsync(
+                new CheckPrerequisitesRequest(),
+                deadline: deadline);
+
+            _setupPrerequisitesStatus = response.Prerequisites
+                .Select(p => (p.Name, p.Status, p.Message))
+                .ToList();
+
+            _setupPrerequisitesVerifiedInstalled = response.Prerequisites.All(
+                p => string.Equals(p.Status, "installed", StringComparison.OrdinalIgnoreCase));
+
+            return _setupPrerequisitesVerifiedInstalled;
+        }
+        catch (RpcException)
+        {
+            _setupPrerequisitesVerifiedInstalled = false;
+            return false;
+        }
+    }
+
+    private async Task TryInitializeDevicesAfterPrerequisitesAsync(bool verifyWithService)
+    {
+        if (_deviceInitializationStarted)
+            return;
+
+        if (SetupOverlay.Visibility == Visibility.Visible)
+            return;
+
+        var prerequisitesInstalled = _setupPrerequisitesVerifiedInstalled;
+        if (!prerequisitesInstalled && verifyWithService)
+            prerequisitesInstalled = await QueryPrerequisitesInstalledAsync();
+
+        if (!prerequisitesInstalled)
+        {
+            _vm.StatusText = "Setup required: install prerequisites";
+            if (SetupOverlay.Visibility != Visibility.Visible)
+                ShowSetupOverlay();
+            return;
+        }
+
+        _deviceInitializationStarted = true;
+        await _vm.InitializeAsync();
     }
 
     private async Task PopulateDistroCheckboxesAsync()
@@ -386,10 +458,17 @@ public partial class MainWindow
             response = await _client.Setup.CheckPrerequisitesAsync(
                 new CheckPrerequisitesRequest(),
                 deadline: deadline);
+
+            _setupPrerequisitesStatus = response.Prerequisites
+                .Select(p => (p.Name, p.Status, p.Message))
+                .ToList();
+            _setupPrerequisitesVerifiedInstalled = response.Prerequisites.All(
+                p => string.Equals(p.Status, "installed", StringComparison.OrdinalIgnoreCase));
         }
         catch (RpcException ex)
         {
             var isDown = ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
+            _setupPrerequisitesVerifiedInstalled = false;
             SetupPrerequisitesStatus.Children.Clear();
             SetupPrerequisitesStatus.Children.Add(
                 CreateServiceErrorPanel(
@@ -403,9 +482,6 @@ public partial class MainWindow
         }
 
         SetupPrerequisitesStatus.Children.Clear();
-        _setupPrerequisitesStatus = response.Prerequisites
-            .Select(p => (p.Name, p.Status, p.Message))
-            .ToList();
 
         foreach (var prereq in response.Prerequisites)
         {
@@ -508,14 +584,20 @@ public partial class MainWindow
         SetupLightCard.BorderThickness = _setupSelectedTheme == "Light" ? new Thickness(2) : new Thickness(1);
     }
 
-    private void DismissSetupOverlay()
+    private Task DismissSetupOverlayAsync()
     {
+        if (SetupOverlay.Visibility != Visibility.Visible)
+            return Task.CompletedTask;
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var fade = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(350));
         fade.Completed += (_, _) =>
         {
             SetupOverlay.Visibility = Visibility.Collapsed;
             SetupOverlay.Opacity = 1.0;
+            completion.TrySetResult();
         };
         SetupOverlay.BeginAnimation(OpacityProperty, fade);
+        return completion.Task;
     }
 }

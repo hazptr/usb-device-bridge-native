@@ -23,8 +23,8 @@ public sealed class Notification
     /// <summary>Unique identifier for this notification.</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
-    /// <summary>UTC timestamp when the notification was created.</summary>
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    /// <summary>Local timestamp when the notification was created.</summary>
+    public DateTime Timestamp { get; set; } = DateTime.Now;
 
     /// <summary>Severity level of the notification.</summary>
     public NotificationSeverity Severity { get; set; }

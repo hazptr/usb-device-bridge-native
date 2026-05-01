@@ -44,7 +44,8 @@ public sealed class VersionInfoProviderAndDeviceServiceTests
             new RememberedDeviceStore(Path.GetTempFileName()),
             new AutoAttachActivityTracker(),
             new ServiceClientConnectionTracker(),
-            provider);
+            provider,
+            new AutoAttachNotificationStore());
 
         var response = await service.GetVersionInfo(new GetVersionInfoRequest(), new TestServerCallContext());
 

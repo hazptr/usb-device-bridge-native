@@ -6,16 +6,16 @@ namespace UsbDeviceBridge.Tests;
 public class RememberedDeviceAutoAttachPlannerTests
 {
     [Fact]
-    public void ParseAvailableDistros_ParsesNamesFromWslOutput()
+    public void ParseAvailableDistros_ReturnsOnlyRunningDistros()
     {
         var stdout = "NAME                   STATE           VERSION\n* Ubuntu-24.04         Running         2\n  Debian               Stopped         2\n  Ubuntu Dev           Running         2\n";
 
         var distros = RememberedDeviceAutoAttachPlanner.ParseAvailableDistros(stdout);
 
-        Assert.Equal(3, distros.Count);
+        Assert.Equal(2, distros.Count);
         Assert.Contains("Ubuntu-24.04", distros);
-        Assert.Contains("Debian", distros);
         Assert.Contains("Ubuntu Dev", distros);
+        Assert.DoesNotContain("Debian", distros);
     }
 
     [Fact]

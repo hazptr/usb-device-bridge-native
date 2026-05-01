@@ -26,6 +26,7 @@ builder.Services.AddSingleton<VersionInfoProvider>();
 builder.Services.AddSingleton<RememberedDeviceStore>();
 builder.Services.AddSingleton<AutoAttachActivityTracker>();
 builder.Services.AddSingleton<AutoAttachAttemptCancellationRegistry>();
+builder.Services.AddSingleton<AutoAttachNotificationStore>();
 builder.Services.AddSingleton<ServiceClientConnectionTracker>();
 builder.Services.AddHostedService<AutoAttachBackgroundService>();
 

@@ -29,7 +29,16 @@ public sealed partial class DeviceViewModel : ObservableObject
     // ── Mutable: user's distro selection in the dropdown ──
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConnect))]
+    [NotifyPropertyChangedFor(nameof(ConnectTooltip))]
+    [NotifyPropertyChangedFor(nameof(DistroTooltip))]
     private string _selectedDistro = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConnect))]
+    [NotifyPropertyChangedFor(nameof(ConnectTooltip))]
+    [NotifyPropertyChangedFor(nameof(DistroTooltip))]
+    private bool _selectedDistroIsRunning = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSelectDistro))]
@@ -61,12 +70,32 @@ public sealed partial class DeviceViewModel : ObservableObject
             : Visibility.Collapsed;
 
     // Remembered devices are managed by auto-attach; manual buttons are disabled
-    public bool CanConnect    => State is "available" or "shared" && !Remembered && !IsBusy && !IsAttaching;
+    public bool CanConnect    =>
+        State is "available" or "shared"
+        && !Remembered
+        && !IsBusy
+        && !IsAttaching
+        && !string.IsNullOrWhiteSpace(SelectedDistro)
+        && SelectedDistroIsRunning;
     public bool CanDisconnect => State is "attached"  or "shared" && !Remembered && !IsBusy && !IsAttaching;
     public bool CanSelectDistro => !IsBusy && !IsAttaching && HasInstanceId && DistroListReady;
 
     public Visibility BusyVisibility    => (IsBusy || IsAttaching) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ActionsVisibility => (IsBusy || IsAttaching) ? Visibility.Collapsed : Visibility.Visible;
+
+    public string ConnectTooltip => "Bind and attach device to WSL";
+
+    public string DistroTooltip
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(SelectedDistro))
+                return "Select a distro";
+
+            var state = SelectedDistroIsRunning ? "Running" : "Offline";
+            return $"{SelectedDistro} - {state}";
+        }
+    }
 
     public string RememberTooltip => Remembered
         ? "Forget — stop keeping this device attached automatically"

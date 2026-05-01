@@ -1,0 +1,42 @@
+﻿<Project Sdk="WixToolset.Sdk/4.0.5">
+
+  <PropertyGroup>
+    <OutputName>UsbDeviceBridgeSetup</OutputName>
+    <Platform>x64</Platform>
+    <!--
+      ServicePublishDir and AppPublishDir can be overridden by the caller (e.g. CI/CD).
+      Both are siblings of this project under src/.
+    -->
+    <ServicePublishDir Condition="'$(ServicePublishDir)' == ''">$(MSBuildThisFileDirectory)..\UsbDeviceBridge.Service\bin\Release\net10.0\win-x64\publish</ServicePublishDir>
+    <AppPublishDir Condition="'$(AppPublishDir)' == ''">$(MSBuildThisFileDirectory)..\UsbDeviceBridge.App\bin\Release\net10.0-windows\win-x64\publish</AppPublishDir>
+    <DefineConstants>ServicePublishDir=$(ServicePublishDir);AppPublishDir=$(AppPublishDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="4.0.5" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="4.0.5" />
+  </ItemGroup>
+
+  <!--
+    Harvest target: runs before WiX compilation, scans the two publish directories,
+    and emits HarvestedFiles.g.wxs into the intermediate output folder.
+    Prerequisites:
+      dotnet publish src\UsbDeviceBridge.Service -c Release -r win-x64 -p:SelfContained=false
+      dotnet publish src\UsbDeviceBridge.App -c Release -r win-x64 -p:SelfContained=false
+  -->
+  <Target Name="HarvestPublishDirs" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_HarvestedWxs>$(IntermediateOutputPath)HarvestedFiles.g.wxs</_HarvestedWxs>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+
+    <Exec Command="pwsh.exe -NoProfile -NonInteractive -File &quot;$(MSBuildThisFileDirectory)Harvest.ps1&quot; -ServicePublishDir &quot;$(ServicePublishDir)&quot; -AppPublishDir &quot;$(AppPublishDir)&quot; -OutputFile &quot;$(_HarvestedWxs)&quot;"
+          ConsoleToMsBuild="true" />
+
+    <ItemGroup>
+      <Compile Include="$(_HarvestedWxs)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

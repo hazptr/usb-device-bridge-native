@@ -16,6 +16,7 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
     private readonly ServiceClientConnectionTracker connectionTracker;
     private readonly VersionInfoProvider versionInfoProvider;
     private readonly AttachConfirmationPoller _confirmationPoller;
+    private readonly AutoAttachNotificationStore _notificationStore;
 
     public DeviceServiceImpl(
         ILogger<DeviceServiceImpl> logger,
@@ -24,7 +25,8 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
         RememberedDeviceStore rememberedDeviceStore,
         AutoAttachActivityTracker autoAttachActivityTracker,
         ServiceClientConnectionTracker connectionTracker,
-        VersionInfoProvider versionInfoProvider
+        VersionInfoProvider versionInfoProvider,
+        AutoAttachNotificationStore notificationStore
     )
     {
         this.logger = logger;
@@ -35,6 +37,7 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
         this.connectionTracker = connectionTracker;
         this.versionInfoProvider = versionInfoProvider;
         _confirmationPoller = new AttachConfirmationPoller(usbIpdClient, logger);
+        _notificationStore = notificationStore;
     }
 
     public override async Task<GetDevicesResponse> GetDevices(
@@ -192,6 +195,24 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
                     pair => DeviceStreamEventPlanner.Clone(pair.Value),
                     StringComparer.Ordinal
                 );
+
+                // Drain any auto-attach notifications and forward them to the client.
+                foreach (var notification in _notificationStore.DrainPending())
+                {
+                    await responseStream.WriteAsync(
+                        new DeviceEvent
+                        {
+                            EventType = "notification",
+                            NotificationMessage = notification.Message,
+                            NotificationSeverity = notification.Severity,
+                            NotificationCode = notification.Code,
+                            NotificationInstanceId = notification.InstanceId,
+                            NotificationBusId = notification.BusId,
+                            NotificationWslDistro = notification.WslDistro,
+                        },
+                        ct
+                    );
+                }
             }
 
             foreach (var delta in pending.Values)
@@ -321,12 +342,78 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
                 context.CancellationToken
             );
 
+            var firewallFixApplied = false;
+
             if (!attachOk)
-                return new AttachDeviceResponse
+            {
+                // --- Firewall-recovery path ---
+                if (FirewallSignatureClassifier.IsFirewallBlock(attachMsg))
                 {
-                    Ok = false,
-                    Message = attachMsg.Length > 0 ? attachMsg : "Attach failed.",
-                };
+                    var policy = NormalizeFirewallPolicy(request.FirewallFixPolicy);
+                    logger.LogInformation(
+                        "Firewall-like attach failure detected (policy={Policy}) bus={BusId} distro={Distro}: {Message}",
+                        policy, busId, wslDistro, attachMsg);
+
+                    if (policy != "always")
+                    {
+                        // "ask" or "never" – do not apply the fix automatically.
+                        var guidanceMsg = policy == "never"
+                            ? "Firewall fix is disabled by policy. Enable 'Auto-fix' in Settings to allow automatic recovery."
+                            : "Firewall may be blocking the connection. Enable 'Auto-fix' in Settings or approve recovery when prompted.";
+
+                        return new AttachDeviceResponse
+                        {
+                            Ok = false,
+                            Message = guidanceMsg,
+                            FailReason = AttachFailReason.PolicyPrevented,
+                        };
+                    }
+
+                    // policy == "always" → apply fix and retry once.
+                    var (fixOk, fixErr) = await WslFirewallFixer.ApplyPublicProfileFixAsync(
+                        logger, context.CancellationToken);
+
+                    if (!fixOk)
+                    {
+                        logger.LogWarning("Firewall fix failed: {Error}", fixErr);
+                        return new AttachDeviceResponse
+                        {
+                            Ok = false,
+                            Message = $"Automatic firewall recovery failed: {fixErr}",
+                            FailReason = AttachFailReason.FirewallFixFailed,
+                        };
+                    }
+
+                    logger.LogInformation("Firewall fix applied; retrying attach bus={BusId} distro={Distro}.", busId, wslDistro);
+                    var (retryOk, retryMsg) = await usbIpdClient.AttachAsync(
+                        wslDistro, busId, context.CancellationToken);
+
+                    if (!retryOk)
+                    {
+                        logger.LogWarning(
+                            "Attach still failing after firewall fix bus={BusId} distro={Distro}: {Message}",
+                            busId, wslDistro, retryMsg);
+                        return new AttachDeviceResponse
+                        {
+                            Ok = false,
+                            Message = $"Attach still failing after adjusting the Public firewall profile for WSL vEthernet adapters.\n\n{retryMsg}",
+                            FailReason = AttachFailReason.StillFailedAfterFix,
+                        };
+                    }
+
+                    // Retry succeeded.
+                    attachMsg = retryMsg;
+                    firewallFixApplied = true;
+                }
+                else
+                {
+                    return new AttachDeviceResponse
+                    {
+                        Ok = false,
+                        Message = attachMsg.Length > 0 ? attachMsg : "Attach failed.",
+                    };
+                }
+            }
 
             if (request.Remember && !string.IsNullOrEmpty(instanceId))
             {
@@ -357,6 +444,7 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
             {
                 Ok = true,
                 Message = attachMsg.Length > 0 ? attachMsg : "Device attached.",
+                FirewallFixApplied = firewallFixApplied,
             };
         }
         finally
@@ -463,10 +551,10 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
     {
         var response = new QueryWslDistrosResponse();
 
-        IReadOnlyList<string> distros;
+        IReadOnlyList<SelectableWslDistro> distros;
         try
         {
-            distros = await wslInterop.QuerySelectableDistrosAsync(context.CancellationToken);
+            distros = await wslInterop.QuerySelectableDistrosWithStateAsync(context.CancellationToken);
         }
         catch (Exception ex)
         {
@@ -475,7 +563,14 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
         }
 
         foreach (var distro in distros)
-            response.Distros.Add(distro);
+        {
+            response.Distros.Add(distro.Name);
+            response.DistroStatuses.Add(new DistroStatus
+            {
+                Name = distro.Name,
+                IsRunning = distro.IsRunning,
+            });
+        }
 
         return response;
     }
@@ -507,5 +602,16 @@ public sealed class DeviceServiceImpl : DeviceService.DeviceServiceBase
                 UsbipdVersion = "Unknown",
             };
         }
+    }
+
+    /// <summary>
+    /// Normalises the firewall-fix policy string from a request.
+    /// Accepts "always" and "never"; anything else (including empty) maps to "ask".
+    /// </summary>
+    private static string NormalizeFirewallPolicy(string? raw)
+    {
+        if (string.Equals(raw, "always", StringComparison.OrdinalIgnoreCase)) return "always";
+        if (string.Equals(raw, "never",  StringComparison.OrdinalIgnoreCase)) return "never";
+        return "ask";
     }
 }

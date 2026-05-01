@@ -23,18 +23,50 @@ message DeviceEvent {
   Device device = 1;
   string event_type = 2;
   string stream_key = 3;
+  // Populated when event_type == "notification". Contains a user-facing message.
+  string notification_message = 4;
+  // Severity of the notification: "info", "warning", or "error".
+  string notification_severity = 5;
+  // Stable machine-readable code for notification routing in UI.
+  // Example: "auto_attach_firewall_consent_required".
+  string notification_code = 6;
+  // Optional device identifiers for notification context.
+  string notification_instance_id = 7;
+  string notification_bus_id = 8;
+  string notification_wsl_distro = 9;
 }
 
+// Policy for automatically applying the WSL vEthernet Public-profile firewall fix
+// when usbipd attach output suggests a firewall block.
+// "ask"   – return NeedsConsent result so UI can prompt the user (default)
+// "always"– service applies the fix without prompting
+// "never" – service returns PolicyPrevented without attempting any fix
 message AttachDeviceRequest {
   string instance_id = 1;
   string bus_id = 2;
   string wsl_distro = 3;
   bool remember = 4;
+  string firewall_fix_policy = 5;
+}
+
+// Structured reason for a failed attach, enabling the UI to show
+// firewall-specific toasts rather than a generic error message.
+enum AttachFailReason {
+  ATTACH_FAIL_REASON_UNSPECIFIED = 0;
+  // Firewall block detected but policy (ask/never) prevented automatic adjustment.
+  ATTACH_FAIL_REASON_POLICY_PREVENTED = 1;
+  // Service attempted the WSL vEthernet Public-profile fix but it failed.
+  ATTACH_FAIL_REASON_FIREWALL_FIX_FAILED = 2;
+  // Fix applied successfully but usbipd attach still failed on the retry.
+  ATTACH_FAIL_REASON_STILL_FAILED_AFTER_FIX = 3;
 }
 
 message AttachDeviceResponse {
   bool ok = 1;
   string message = 2;
+  AttachFailReason fail_reason = 3;
+  // Set to true when the firewall fix was applied before a successful attach.
+  bool firewall_fix_applied = 4;
 }
 
 message DetachDeviceRequest {
@@ -49,8 +81,14 @@ message DetachDeviceResponse {
 
 message QueryWslDistrosRequest {}
 
+message DistroStatus {
+  string name = 1;
+  bool is_running = 2;
+}
+
 message QueryWslDistrosResponse {
   repeated string distros = 1;
+  repeated DistroStatus distro_statuses = 2;
 }
 
 message GetVersionInfoRequest {}

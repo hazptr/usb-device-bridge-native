@@ -8,6 +8,8 @@ using Microsoft.Win32.SafeHandles;
 
 namespace UsbDeviceBridge.Service.Interop;
 
+public readonly record struct SelectableWslDistro(string Name, bool IsRunning);
+
 public sealed class WslInterop
 {
     private static readonly StringComparer NameComparer = StringComparer.OrdinalIgnoreCase;
@@ -298,6 +300,14 @@ public sealed class WslInterop
         CancellationToken cancellationToken
     )
     {
+        var distros = await QuerySelectableDistrosWithStateAsync(cancellationToken);
+        return distros.Select(d => d.Name).ToArray();
+    }
+
+    public async Task<IReadOnlyList<SelectableWslDistro>> QuerySelectableDistrosWithStateAsync(
+        CancellationToken cancellationToken
+    )
+    {
         var installedResult = await ListDistrosQuietAsync(cancellationToken);
         if (installedResult.ExitCode != 0)
             return [];
@@ -356,7 +366,12 @@ public sealed class WslInterop
             .Where(validDistros.Contains)
             .ToArray();
 
-        return WslDistroParser.BuildSelectableDistros(validInstalled, runningValid);
+        var ordered = WslDistroParser.BuildSelectableDistros(validInstalled, runningValid);
+        var runningSet = new HashSet<string>(runningValid, NameComparer);
+
+        return ordered
+            .Select(name => new SelectableWslDistro(name, runningSet.Contains(name)))
+            .ToArray();
     }
 
     public Task<ProcessResult> TerminateDistroAsync(

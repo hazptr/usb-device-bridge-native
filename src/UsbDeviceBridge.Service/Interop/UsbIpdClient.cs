@@ -6,6 +6,8 @@ namespace UsbDeviceBridge.Service.Interop;
 
 public sealed class UsbIpdClient
 {
+    private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(10);
+
     private readonly string _usbIpdPath;
     private readonly string _tcpHost;
     private readonly int _tcpPort;
@@ -45,11 +47,22 @@ public sealed class UsbIpdClient
         CancellationToken ct
     )
     {
-        // usbipd 5.x uses "--wsl <distro>" and does not support "--distribution".
-        var (code, stdout, stderr) = await RunCliAsync(
-            ["attach", "--busid", busId, "--wsl", distro],
-            ct
-        );
+        (int Code, string? Stdout, string? Stderr) result;
+        try
+        {
+            // usbipd 5.x uses "--wsl <distro>" and does not support "--distribution".
+            result = await RunCliAsync(
+                ["attach", "--busid", busId, "--wsl", distro],
+                ct,
+                AttachTimeout
+            );
+        }
+        catch (UsbIpdTimeoutException)
+        {
+            return (false, $"usbipd attach timed out after {(int)AttachTimeout.TotalSeconds} seconds.");
+        }
+
+        var (code, stdout, stderr) = result;
         if (code == 0)
             return (true, "");
 
@@ -59,15 +72,23 @@ public sealed class UsbIpdClient
             || message.Contains("unrecognized", StringComparison.OrdinalIgnoreCase)
         )
         {
-            // Compatibility path for alternate/help-documented variants.
-            var (fallbackCode, fallbackStdout, fallbackStderr) = await RunCliAsync(
-                ["attach", "--busid", busId, "--wsl", "--distribution", distro],
-                ct
-            );
-            if (fallbackCode == 0)
-                return (true, "");
+            try
+            {
+                // Compatibility path for alternate/help-documented variants.
+                var (fallbackCode, fallbackStdout, fallbackStderr) = await RunCliAsync(
+                    ["attach", "--busid", busId, "--wsl", "--distribution", distro],
+                    ct,
+                    AttachTimeout
+                );
+                if (fallbackCode == 0)
+                    return (true, "");
 
-            return (false, $"{fallbackStderr}\n{fallbackStdout}".Trim());
+                return (false, $"{fallbackStderr}\n{fallbackStdout}".Trim());
+            }
+            catch (UsbIpdTimeoutException)
+            {
+                return (false, $"usbipd attach timed out after {(int)AttachTimeout.TotalSeconds} seconds.");
+            }
         }
 
         return (false, message);
@@ -146,28 +167,58 @@ public sealed class UsbIpdClient
 
     private async Task<(int Code, string? Stdout, string? Stderr)> RunCliAsync(
         string[] args,
-        CancellationToken ct
+        CancellationToken ct,
+        TimeSpan? timeout = null
     )
     {
-        var psi = new ProcessStartInfo
+        CancellationTokenSource? timeoutCts = null;
+        if (timeout is TimeSpan timeoutValue)
         {
-            FileName = _usbIpdPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var arg in args)
-            psi.ArgumentList.Add(arg);
+            timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(timeoutValue);
+        }
 
-        using var process = new Process { StartInfo = psi };
-        process.Start();
+        using (timeoutCts)
+        {
+            var effectiveToken = timeoutCts?.Token ?? ct;
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
+            var psi = new ProcessStartInfo
+            {
+                FileName = _usbIpdPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            foreach (var arg in args)
+                psi.ArgumentList.Add(arg);
 
-        return (process.ExitCode, await stdoutTask, await stderrTask);
+            using var process = new Process { StartInfo = psi };
+            process.Start();
+
+            try
+            {
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(effectiveToken);
+                var stderrTask = process.StandardError.ReadToEndAsync(effectiveToken);
+                await process.WaitForExitAsync(effectiveToken);
+
+                return (process.ExitCode, await stdoutTask, await stderrTask);
+            }
+            catch (OperationCanceledException) when (timeoutCts is not null && !ct.IsCancellationRequested)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Best effort kill.
+                }
+
+                throw new UsbIpdTimeoutException($"usbipd {string.Join(' ', args)} timed out.");
+            }
+        }
     }
 
     private async Task<IReadOnlyList<UsbIpdStateDevice>> GetDevicesFromStateAsync(CancellationToken ct)
@@ -267,3 +318,5 @@ public sealed class UsbIpdClient
 }
 
 public sealed class UsbIpdException(string message) : Exception(message);
+
+public sealed class UsbIpdTimeoutException(string message) : Exception(message);

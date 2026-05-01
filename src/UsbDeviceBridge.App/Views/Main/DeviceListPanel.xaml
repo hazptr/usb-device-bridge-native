@@ -5,14 +5,7 @@
              Background="Transparent">
     <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
-    <Geometry x:Key="ConnectPlugGeometry">
-        M6,2 C6,1.45 6.45,1 7,1 H9 C9.55,1 10,1.45 10,2 V3 H11.2 C12.75,3 14,4.25 14,5.8 V8.2 C14,9.75 12.75,11 11.2,11 H10 V13.5 H8.8 V11 H7.2 V13.5 H6 V11 H4.8 C3.25,11 2,9.75 2,8.2 V5.8 C2,4.25 3.25,3 4.8,3 H6 Z
-
-M3.4,5.8 V8.2 C3.4,8.97 4.03,9.6 4.8,9.6 H11.2 C11.97,9.6 12.6,8.97 12.6,8.2 V5.8 C12.6,5.03 11.97,4.4 11.2,4.4 H4.8 C4.03,4.4 3.4,5.03 3.4,5.8 Z
-
-M6.5,0 H7.5 V2.5 H6.5 Z
-M8.5,0 H9.5 V2.5 H8.5 Z
-    </Geometry>
+    <Geometry x:Key="ConnectPlugGeometry">M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244</Geometry>
     <Geometry x:Key="RememberBookmarkGeometry">M4,2 L12,2 C12.55,2 13,2.45 13,3 L13,14 L8.5,11 L4,14 L4,3 C4,2.45 4.45,2 5,2 Z</Geometry>
 
     <Style x:Key="ActionIconButton"
@@ -165,11 +158,36 @@ M8.5,0 H9.5 V2.5 H8.5 Z
                                                 Visibility="{Binding ActionsVisibility}">
                                         <ComboBox Style="{StaticResource DistroCombo}"
                                                   ItemsSource="{Binding DataContext.Distros, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                  SelectedItem="{Binding SelectedDistro}"
+                                                  SelectedValuePath="Name"
+                                                  SelectedValue="{Binding SelectedDistro, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   IsEnabled="{Binding CanSelectDistro}"
-                                                  ToolTip="WSL distro to attach to"
-                                                  Margin="-6,0,6,0"/>
-                                        <Button ToolTip="Bind and attach device to WSL"
+                                                  ToolTip="{Binding DistroTooltip}"
+                                                  Margin="-6,0,6,0">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal"
+                                                                ToolTip="{Binding NameStateTooltip}">
+                                                        <Ellipse Width="8"
+                                                                 Height="8"
+                                                                 Margin="0,0,6,0"
+                                                                 VerticalAlignment="Center">
+                                                            <Ellipse.Style>
+                                                                <Style TargetType="Ellipse">
+                                                                    <Setter Property="Fill" Value="{DynamicResource AvailableFg}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                                            <Setter Property="Fill" Value="{DynamicResource AttachedFg}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Ellipse.Style>
+                                                        </Ellipse>
+                                                        <TextBlock Text="{Binding Name}"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button ToolTip="{Binding ConnectTooltip}"
                                                 Visibility="{Binding ConnectVisibility}"
                                                 IsEnabled="{Binding CanConnect}"
                                                 Command="{Binding DataContext.ConnectCommand, RelativeSource={RelativeSource AncestorType=Window}}"
