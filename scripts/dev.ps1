@@ -111,6 +111,26 @@ function Get-RealProcess {
     return Get-Process -Id $LauncherPid -ErrorAction SilentlyContinue
 }
 
+function Stop-ProductionService {
+    $svc = Get-Service -Name 'UsbDeviceBridge' -ErrorAction SilentlyContinue
+    if (-not $svc) { return }
+    if ($svc.Status -eq 'Stopped') { return }
+
+    Write-Host "Stopping production UsbDeviceBridge service..." -ForegroundColor Yellow
+    & sc.exe stop UsbDeviceBridge | Out-Null
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $svc.Refresh()
+        if ($svc.Status -eq 'Stopped') { break }
+        Start-Sleep -Milliseconds 300
+    }
+    if ($svc.Status -ne 'Stopped') {
+        Write-Warning "Production service did not stop within 10 s; dev service may conflict."
+    } else {
+        Write-Host "Production service stopped." -ForegroundColor Green
+    }
+}
+
 function Request-GracefulClose {
     param(
         [Parameter(Mandatory = $true)]
@@ -177,6 +197,8 @@ if ($normalizedCommand -eq 'service') {
 
     # Clear any stale shutdown flag from a previous run.
     Remove-Item $script:shutdownFlag -ErrorAction SilentlyContinue
+
+    Stop-ProductionService
 
     Write-Host "[ADMIN] Starting UsbDeviceBridge.Service on http://127.0.0.1:5205 ..." -ForegroundColor Cyan
     $svcProc = Start-Process dotnet -PassThru -WorkingDirectory "$root" `
