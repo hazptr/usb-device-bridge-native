@@ -53,8 +53,6 @@ public partial class MainWindow
 
     private TextBox SetupAddClientHostText => SetupOverlay.AddClientHostText;
 
-    private Button SetupAddClientButton => SetupOverlay.AddClientButton;
-
     private Button SetupInstallStopButton => SetupOverlay.InstallStopButton;
 
     private Button SetupInstallStartOverButton => SetupOverlay.InstallStartOverButton;
@@ -107,7 +105,7 @@ public partial class MainWindow
         SetupBackButton.Click -= SetupBack_OnClick;
         SetupNextButton.Click -= SetupNext_OnClick;
         SetupInstallPackagesButton.Click -= SetupInstallPackages_OnClick;
-        SetupAddClientButton.Click -= SetupAddClient_OnClick;
+        SetupOverlay.AddClientRequested -= SetupAddClient_OnClick;
         SetupInstallStopButton.Click -= SetupInstallStop_OnClick;
         SetupInstallStartOverButton.Click -= SetupInstallStartOver_OnClick;
         SetupInstallUsbIpdButton.Click -= SetupInstallUsbIpd_OnClick;
@@ -117,7 +115,7 @@ public partial class MainWindow
         SetupBackButton.Click += SetupBack_OnClick;
         SetupNextButton.Click += SetupNext_OnClick;
         SetupInstallPackagesButton.Click += SetupInstallPackages_OnClick;
-        SetupAddClientButton.Click += SetupAddClient_OnClick;
+        SetupOverlay.AddClientRequested += SetupAddClient_OnClick;
         SetupInstallStopButton.Click += SetupInstallStop_OnClick;
         SetupInstallStartOverButton.Click += SetupInstallStartOver_OnClick;
         SetupInstallUsbIpdButton.Click += SetupInstallUsbIpd_OnClick;

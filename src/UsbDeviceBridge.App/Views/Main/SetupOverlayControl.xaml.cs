@@ -1,3 +1,4 @@
+using System.Windows;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
@@ -16,6 +17,7 @@ public partial class SetupOverlayControl : UserControl
     public SetupOverlayControl()
     {
         InitializeComponent();
+        SetupClientsSelector.AddClientRequested += SetupClientsSelector_OnAddClientRequested;
     }
 
     public Grid StepOnePanel => SetupStepOnePanel;
@@ -30,7 +32,7 @@ public partial class SetupOverlayControl : UserControl
 
     public Grid DistroLogView => SetupDistroLogView;
 
-    public StackPanel DistroCheckboxes => SetupDistroCheckboxes;
+    public StackPanel DistroCheckboxes => SetupClientsSelector.ClientListHost;
 
     public StackPanel PrerequisitesStatus => SetupPrerequisitesStatus;
 
@@ -38,9 +40,9 @@ public partial class SetupOverlayControl : UserControl
 
     public Button InstallPackagesButton => SetupInstallPackagesButton;
 
-    public TextBox AddClientHostText => SetupAddClientHostText;
+    public TextBox AddClientHostText => SetupClientsSelector.AddClientHostText;
 
-    public Button AddClientButton => SetupAddClientButton;
+    public event RoutedEventHandler? AddClientRequested;
 
     public Button InstallStopButton => SetupInstallStopButton;
 
@@ -87,4 +89,7 @@ public partial class SetupOverlayControl : UserControl
     public CheckBox AutoRefresh => SetupAutoRefresh;
 
     public ComboBox UpdateCheckModeCombo => SetupUpdateCheckModeCombo;
+
+    private void SetupClientsSelector_OnAddClientRequested(object sender, RoutedEventArgs e)
+        => AddClientRequested?.Invoke(sender, e);
 }

@@ -15,6 +15,7 @@ public partial class SettingsOverlayControl : UserControl
     public SettingsOverlayControl()
     {
         InitializeComponent();
+        SettingsClientsSelector.AddClientRequested += AddClient_OnClick;
     }
 
     public Border PanelShell => SettingsPanelShell;
@@ -25,9 +26,9 @@ public partial class SettingsOverlayControl : UserControl
 
     public StackPanel SectionsRoot => SettingsSectionsRoot;
 
-    public TextBox AddClientHostText => SettingsAddClientHostText;
+    public TextBox AddClientHostText => SettingsClientsSelector.AddClientHostText;
 
-    public StackPanel ClientListHost => SettingsClientListHost;
+    public StackPanel ClientListHost => SettingsClientsSelector.ClientListHost;
 
     public Button CheckUpdatesButton => SettingsCheckUpdatesButton;
 

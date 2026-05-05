@@ -1,0 +1,60 @@
+<UserControl x:Class="UsbDeviceBridge.App.Views.Main.SettingsClientsSelectorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <UserControl.Resources>
+        <Style x:Key="ClientSettingHintIcon" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="Text" Value="&#xE946;"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{DynamicResource SurfaceAltBg}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="10"
+            Padding="12">
+        <StackPanel>
+            <StackPanel Margin="0,0,0,12">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
+                    <TextBlock Text="Add SSH client"
+                               Foreground="{DynamicResource TextSecondary}"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Style="{StaticResource ClientSettingHintIcon}"/>
+                </StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="AddClientHostTextBox"
+                             Height="40"
+                             Margin="0,0,8,0"
+                             Padding="10,6"
+                             FontSize="13"
+                             VerticalContentAlignment="Center"
+                             ToolTip="Enter SSH host alias or user@host"/>
+                    <Button x:Name="AddClientButton"
+                            Grid.Column="1"
+                            Content="Add"
+                            Style="{StaticResource GhostBtn}"
+                            Click="AddClientButton_OnClick"/>
+                </Grid>
+            </StackPanel>
+
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
+                    <TextBlock Text="Configured clients"
+                               Foreground="{DynamicResource TextSecondary}"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Style="{StaticResource ClientSettingHintIcon}"/>
+                </StackPanel>
+                <StackPanel x:Name="ClientListHostPanel"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

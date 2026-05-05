@@ -1,8 +1,28 @@
 <UserControl x:Class="UsbDeviceBridge.App.Views.Main.SettingsOverlayControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:main="clr-namespace:UsbDeviceBridge.App.Views.Main"
              Background="{DynamicResource OverlayBg}"
              Visibility="Collapsed">
+    <UserControl.Resources>
+        <Style x:Key="SettingHintIcon" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="Text" Value="&#xE946;"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="Grid">
+            <Setter Property="MinHeight" Value="32"/>
+            <Style.Triggers>
+                <Trigger Property="Tag" Value="{x:Null}">
+                    <Setter Property="MinHeight" Value="0"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
     <Border x:Name="SettingsPanelShell"
             Width="840"
             Height="560"
@@ -95,14 +115,18 @@
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowFrontendVersion"
                                       Tag="version frontend app ui build"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Shows the desktop app version currently running.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Frontend version"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Frontend version"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding FrontendVersion}"
                                                Foreground="{DynamicResource TextPrimary}"
@@ -110,14 +134,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowBackendVersion"
                                       Tag="version backend service api"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Shows the Windows service version used by the app.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Backend version"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Backend version"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding BackendVersion}"
                                                Foreground="{DynamicResource TextPrimary}"
@@ -125,14 +153,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowWslVersion"
                                       Tag="version wsl system"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Shows the WSL runtime version detected on this machine.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="WSL version"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="WSL version"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding WslVersion}"
                                                Foreground="{DynamicResource TextPrimary}"
@@ -140,14 +172,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowUsbIpdVersion"
                                       Tag="version usbipd system"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Shows the installed usbipd-win version used for USB/IP operations.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="usbipd version"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="usbipd version"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding UsbIpdVersion}"
                                                Foreground="{DynamicResource TextPrimary}"
@@ -155,14 +191,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowCopyVersionInfo"
                                       Tag="version copy diagnostics support"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,0"
+                                      ToolTip="Copies frontend, backend, WSL, and usbipd versions for support and diagnostics.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Copy all version info"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Copy all version info"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <Button Grid.Column="1"
                                             Content="Copy"
                                             Style="{StaticResource GhostBtn}"
@@ -184,14 +224,18 @@
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowUsbIpCheck"
                                                                             Tag="check updates usbip setup status install prerequisites"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Runs setup checks and shows whether required USB/IP prerequisites are installed and ready.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Check USBIP setup status"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Check USBIP setup status"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <Button Grid.Column="1"
                                                                                         Content="Check status"
                                             Style="{StaticResource GhostBtn}"
@@ -199,14 +243,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowUsbIpDocs"
                                       Tag="usbip docs help"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Opens setup docs with installation and troubleshooting instructions.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Open setup documentation"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Open setup documentation"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <Button Grid.Column="1"
                                             Content="Open docs"
                                             Style="{StaticResource GhostBtn}"
@@ -214,14 +262,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowReset"
                                       Tag="reset setup preferences onboarding"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,0"
+                                      ToolTip="Clears setup completion state and shows onboarding/setup prompts again.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Reset first-run setup"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Reset first-run setup"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <Button Grid.Column="1"
                                             Content="Reset"
                                             Style="{StaticResource GhostBtn}"
@@ -237,39 +289,65 @@
                                 Padding="0,10,0,0"
                                 Margin="0,10,0,0">
                             <StackPanel>
-                                <TextBlock Text="Device list"
+                            <TextBlock Text="Behavior"
                                            FontSize="14"
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowAutoRefresh"
                                       Tag="auto refresh device list"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Keeps the device list updated automatically without manual refresh.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Auto-refresh device list"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Auto-refresh device list"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <CheckBox Style="{StaticResource ModernCheckBox}"
                                               Grid.Column="1"
                                               IsChecked="{Binding AutoRefreshEnabled, Mode=TwoWay}"/>
                                 </Grid>
-                                <Grid x:Name="SettingRowSort"
+                                  <Grid x:Name="SettingRowSort"
                                       Tag="sort order devices"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Chooses how devices are ordered in the main device list.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Sort order"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Sort order"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <ComboBox Grid.Column="1"
                                               Style="{StaticResource DistroCombo}"
                                               Width="190"
                                               ItemsSource="{Binding SortOrders}"
                                               SelectedItem="{Binding SortOrderSelected, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowDetachOnExit"
+                                      Tag="detach unbind exit close release devices shutdown"
+                                      Margin="0,0,0,0"
+                                      ToolTip="Detaches and unbinds USB/IP devices on app exit to leave a clean host state.">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Release devices when app exits"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              Grid.Column="1"
+                                              IsChecked="{Binding DetachOnExitEnabled, Mode=TwoWay}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -285,50 +363,11 @@
                                            FontSize="14"
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
-                                <Grid x:Name="SettingRowClientAdd"
-                                      Tag="clients add ssh wsl target dropdown"
-                                      Margin="0,0,0,8">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="Add SSH client"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"
-                                               Margin="0,0,0,6"/>
-                                    <Grid Grid.Row="1">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox x:Name="SettingsAddClientHostText"
-                                                 Height="40"
-                                                 MinHeight="40"
-                                                 Margin="0,0,8,0"
-                                                 Padding="10,6"
-                                                 FontSize="13"
-                                                 VerticalContentAlignment="Center"
-                                                 ToolTip="Enter SSH host alias or user@host"/>
-                                        <Button x:Name="SettingsAddClientButton"
-                                                Grid.Column="1"
-                                                Content="Add"
-                                                Style="{StaticResource GhostBtn}"
-                                                Click="AddClient_OnClick"/>
-                                    </Grid>
-                                </Grid>
-                                <Grid x:Name="SettingRowClientList"
-                                      Tag="clients detected wsl ssh list remove setup packages sudo dnf pacman apt"
-                                      Margin="0,0,0,0">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="Configured clients"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"
-                                               Margin="0,0,0,6"/>
-                                    <StackPanel x:Name="SettingsClientListHost"
-                                                Grid.Row="1"/>
+                                <Grid x:Name="SettingRowClientsSelector"
+                                      Tag="clients add ssh wsl target dropdown detected list remove setup packages sudo dnf pacman apt"
+                                      Margin="0,0,0,0"
+                                      ToolTip="Manage passthrough target clients and add SSH targets.">
+                                    <main:SettingsClientsSelectorControl x:Name="SettingsClientsSelector"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -346,56 +385,72 @@
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowTray"
                                       Tag="tray minimize to tray"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Minimize the app to the system tray instead of the taskbar.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Minimize to tray"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Minimize to tray"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <CheckBox Style="{StaticResource ModernCheckBox}"
                                               Grid.Column="1"
                                               IsChecked="{Binding MinimizeToTrayEnabled, Mode=TwoWay}"/>
                                 </Grid>
                                 <Grid x:Name="SettingRowStartMin"
                                       Tag="start minimized startup launch"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Launches the app in a minimized window state.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Start minimized"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Start minimized"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <CheckBox Style="{StaticResource ModernCheckBox}"
                                               Grid.Column="1"
                                               IsChecked="{Binding StartMinimizedEnabled, Mode=TwoWay}"/>
                                 </Grid>
                                 <Grid x:Name="SettingRowStartWithWindows"
                                       Tag="start with windows login startup"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Starts the app automatically when you sign in to Windows.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Start with Windows"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Start with Windows"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <CheckBox Style="{StaticResource ModernCheckBox}"
                                               Grid.Column="1"
                                               IsChecked="{Binding StartWithWindowsEnabled, Mode=TwoWay}"/>
                                 </Grid>
                                 <Grid x:Name="SettingRowServiceStartupMode"
                                       Tag="service startup mode automatic on-demand manual"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Controls whether the service starts automatically or only when needed.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Service startup mode"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Service startup mode"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <ComboBox Grid.Column="1"
                                               Style="{StaticResource DistroCombo}"
                                               Width="190"
@@ -404,14 +459,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowFirewallRecoveryPolicy"
                                       Tag="firewall recovery policy ask always never"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Defines how the app handles missing firewall rules during setup and startup.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Firewall recovery policy"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Firewall recovery policy"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <ComboBox Grid.Column="1"
                                               Style="{StaticResource DistroCombo}"
                                               Width="190"
@@ -420,14 +479,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowSshPortForwardMode"
                                       Tag="ssh forwarding tunnel attach remote"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,0"
+                                      ToolTip="Selects how SSH tunnels are used when attaching devices to remote clients.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="SSH forwarding mode"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="SSH forwarding mode"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <ComboBox Grid.Column="1"
                                               Style="{StaticResource DistroCombo}"
                                               Width="190"
@@ -450,58 +513,23 @@
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowWindowsNotifications"
                                       Tag="notifications windows os action center background"
-                                      Margin="0,0,0,4">
+                                      Margin="0,0,0,0"
+                                      ToolTip="When enabled, Windows native notifications are shown while the app is not in the foreground.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="Show Windows notifications when app is in the background"
-                                                   Foreground="{DynamicResource TextSecondary}"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBlock Text="In-app toasts are always shown regardless of this setting."
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   FontSize="11"
-                                                   Margin="0,2,0,0"/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="Windows notifications"
+                                                       Foreground="{DynamicResource TextSecondary}"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                        </StackPanel>
                                     </StackPanel>
                                     <CheckBox Style="{StaticResource ModernCheckBox}"
                                               Grid.Column="1"
                                               IsChecked="{Binding WindowsNotificationsEnabled, Mode=TwoWay}"/>
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <Border x:Name="SettingsSectionBehavior"
-                                Background="Transparent"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="0,1,0,0"
-                                Padding="0,10,0,0"
-                                Margin="0,10,0,0">
-                            <StackPanel>
-                                <TextBlock Text="Behavior"
-                                           FontSize="14"
-                                           FontWeight="SemiBold"
-                                           Margin="0,0,0,8"/>
-                                <Grid x:Name="SettingRowDetachOnExit"
-                                      Tag="detach unbind exit close release devices shutdown"
-                                      Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Release devices when app exits"
-                                                   Foreground="{DynamicResource TextSecondary}"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBlock Text="Detaches and unbinds all USB/IP devices when you close the app. Devices you've remembered will be re-attached on next launch."
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   FontSize="11"
-                                                   TextWrapping="Wrap"
-                                                   Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                    <CheckBox Style="{StaticResource ModernCheckBox}"
-                                              Grid.Column="1"
-                                              IsChecked="{Binding DetachOnExitEnabled, Mode=TwoWay}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -519,14 +547,18 @@
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowTheme"
                                       Tag="theme dark light appearance"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Switches the application visual theme.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Theme"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Theme"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <ComboBox Grid.Column="1"
                                               Style="{StaticResource DistroCombo}"
                                               Width="160"
@@ -549,19 +581,16 @@
                                            Margin="0,0,0,8"/>
                                 <Grid x:Name="SettingRowUpdateMode"
                                       Tag="updates auto check releases github install download notify"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Automatic install: download new releases and prompt to install.&#10;Notify only: show a link to the releases page.&#10;Disabled: no checks.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel VerticalAlignment="Center">
+                                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                                         <TextBlock Text="Update checks"
                                                    Foreground="{DynamicResource TextSecondary}"/>
-                                        <TextBlock Text="Automatic install: download new releases and prompt to install. Notify only: show a link to the releases page. Disabled: no checks."
-                                                   FontSize="11"
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   TextWrapping="Wrap"
-                                                   Margin="0,2,12,0"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
                                     </StackPanel>
                                     <ComboBox Grid.Column="1"
                                               Style="{StaticResource DistroCombo}"
@@ -572,15 +601,17 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowCheckUpdates"
                                       Tag="updates check now releases"
-                                      Margin="0,0,0,8">
+                                      Margin="0,0,0,8"
+                                      ToolTip="Runs an immediate update check using the configured update mode.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel VerticalAlignment="Center">
+                                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                                         <TextBlock x:Name="SettingsCheckUpdatesStatus"
                                                    Text="Check for updates now"
                                                    Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
                                     </StackPanel>
                                     <Button x:Name="SettingsCheckUpdatesButton"
                                             Grid.Column="1"
@@ -590,14 +621,18 @@
                                 </Grid>
                                 <Grid x:Name="SettingRowOpenReleases"
                                       Tag="updates releases page github open browser"
-                                      Margin="0,0,0,0">
+                                      Margin="0,0,0,0"
+                                      ToolTip="Opens the GitHub releases page in your browser.">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Open releases page"
-                                               Foreground="{DynamicResource TextSecondary}"
-                                               VerticalAlignment="Center"/>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Open releases page"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Style="{StaticResource SettingHintIcon}"/>
+                                    </StackPanel>
                                     <Button Content="Open"
                                             Grid.Column="1"
                                             Style="{StaticResource GhostBtn}"
@@ -611,3 +646,4 @@
         </Grid>
     </Border>
 </UserControl>
+
