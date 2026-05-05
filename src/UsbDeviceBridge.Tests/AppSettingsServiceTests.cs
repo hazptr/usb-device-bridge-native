@@ -27,6 +27,20 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal("State then name", settings.SortOrder);
         Assert.Equal(ServiceStartupModes.Automatic, settings.ServiceStartupMode);
         Assert.Equal(SshPortForwardModes.Enabled, settings.SshPortForwardMode);
+        Assert.Equal(UpdateCheckModes.Automatic, settings.UpdateCheckMode);
+    }
+
+    [Theory]
+    [InlineData("automatic", "automatic")]
+    [InlineData("AUTOMATIC", "automatic")]
+    [InlineData("notify",    "notify")]
+    [InlineData("disabled",  "disabled")]
+    [InlineData("unknown",   "automatic")]
+    [InlineData("",          "automatic")]
+    [InlineData(null,        "automatic")]
+    public void UpdateCheckModes_Normalize_ReturnsExpected(string? input, string expected)
+    {
+        Assert.Equal(expected, UpdateCheckModes.Normalize(input));
     }
 
     [Fact]
@@ -42,7 +56,7 @@ public sealed class AppSettingsServiceTests : IDisposable
             MinimizeToTray = false,
             StartMinimized = true,
             AutoRefreshEnabled = false,
-            AutoUpdateEnabled = false,
+            UpdateCheckMode = UpdateCheckModes.Disabled,
             StartWithWindows = true,
             SortOrder = "Name",
             ServiceStartupMode = ServiceStartupModes.OnDemand,
@@ -59,7 +73,7 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.False(loaded.MinimizeToTray);
         Assert.True(loaded.StartMinimized);
         Assert.False(loaded.AutoRefreshEnabled);
-        Assert.False(loaded.AutoUpdateEnabled);
+        Assert.Equal(UpdateCheckModes.Disabled, loaded.UpdateCheckMode);
         Assert.True(loaded.StartWithWindows);
         Assert.Equal("Name", loaded.SortOrder);
         Assert.Equal(ServiceStartupModes.OnDemand, loaded.ServiceStartupMode);

@@ -74,6 +74,7 @@ public sealed class AppSettingsService
         settings.ServiceStartupMode = ServiceStartupModes.Normalize(settings.ServiceStartupMode);
         settings.FirewallFixPolicy = FirewallFixPolicies.Normalize(settings.FirewallFixPolicy);
         settings.SshPortForwardMode = SshPortForwardModes.Normalize(settings.SshPortForwardMode);
+        settings.UpdateCheckMode = UpdateCheckModes.Normalize(settings.UpdateCheckMode);
         settings.AdditionalSshClients = (settings.AdditionalSshClients ?? [])
             .Select(c => c?.Trim() ?? string.Empty)
             .Where(c => c.Length > 0)

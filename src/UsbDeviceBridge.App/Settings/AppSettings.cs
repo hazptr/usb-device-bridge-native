@@ -42,6 +42,37 @@ public static class FirewallFixPolicies
     }
 }
 
+public static class UpdateCheckModes
+{
+    /// <summary>Check, download in background, prompt user to install.</summary>
+    public const string Automatic = "automatic";
+
+    /// <summary>Check and notify the user with a link to the release page; no download.</summary>
+    public const string Notify = "notify";
+
+    /// <summary>Disable update checks entirely.</summary>
+    public const string Disabled = "disabled";
+
+    public static readonly IReadOnlyList<string> All = [Automatic, Notify, Disabled];
+
+    public static string GetLabel(string mode) => Normalize(mode) switch
+    {
+        Automatic => "Automatic install",
+        Notify => "Notify only",
+        Disabled => "Disabled",
+        _ => "Automatic install",
+    };
+
+    public static string Normalize(string? value)
+    {
+        if (string.Equals(value, Notify, StringComparison.OrdinalIgnoreCase))
+            return Notify;
+        if (string.Equals(value, Disabled, StringComparison.OrdinalIgnoreCase))
+            return Disabled;
+        return Automatic;
+    }
+}
+
 public static class SshPortForwardModes
 {
     public const string Disabled = "disabled";
@@ -70,7 +101,12 @@ public sealed class AppSettings
 
     public bool AutoRefreshEnabled { get; set; } = true;
 
-    public bool AutoUpdateEnabled { get; set; } = true;
+    /// <summary>
+    /// Controls how the app checks for new releases on GitHub.
+    /// Accepted values: "automatic" (default — check, download, prompt to install),
+    /// "notify" (check and notify with a link), "disabled" (no checks).
+    /// </summary>
+    public string UpdateCheckMode { get; set; } = UpdateCheckModes.Automatic;
 
     public bool StartWithWindows { get; set; }
 

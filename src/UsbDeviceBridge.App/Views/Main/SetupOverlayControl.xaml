@@ -316,12 +316,26 @@
                               Margin="0,0,0,14"
                               Content="Enable auto-refresh by default"
                               IsChecked="True"/>
-                    <CheckBox x:Name="SetupAutoUpdate"
-                              Style="{StaticResource ModernCheckBox}"
-                              Margin="0,0,0,0"
-                              Visibility="Collapsed"
-                              Content="Enable update checks by default"
-                              IsChecked="True"/>
+                    <Grid Margin="0,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Update checks"
+                                       Foreground="{DynamicResource TextPrimary}"/>
+                            <TextBlock Text="Automatic install: download new releases and prompt to install. Notify only: show a link to the releases page. Disabled: no checks."
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,2,12,0"/>
+                        </StackPanel>
+                        <ComboBox x:Name="SetupUpdateCheckModeCombo"
+                                  Grid.Column="1"
+                                  Style="{StaticResource DistroCombo}"
+                                  Width="190"
+                                  VerticalAlignment="Center"/>
+                    </Grid>
                 </StackPanel>
             </Grid>
 

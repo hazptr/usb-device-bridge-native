@@ -171,22 +171,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    public bool AutoUpdateEnabled
-    {
-        get => _settings.AutoUpdateEnabled;
-        set
-        {
-            if (_settings.AutoUpdateEnabled == value)
-            {
-                return;
-            }
-
-            _settings.AutoUpdateEnabled = value;
-            _settingsService.Save(_settings);
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoUpdateEnabled)));
-        }
-    }
-
     public string SortOrderSelected
     {
         get => _settings.SortOrder;
@@ -416,6 +400,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SettingsOverlay.ResetSetupRequested += ResetSetup_OnClick;
         SettingsOverlay.CopyVersionInfoRequested += CopyVersionInfo_OnClick;
         SettingsOverlay.AddClientRequested += SettingsAddClient_OnClick;
+        SettingsOverlay.CheckUpdatesRequested += CheckUpdates_OnClick;
+        SettingsOverlay.OpenReleasesPageRequested += OpenReleasesPage_OnClick;
 
         DataContext = _vm;
         SettingsOverlay.DataContext = this;
@@ -435,6 +421,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             else
             {
                 _ = _vm.InitializeAsync();
+                StartUpdateChecks();
             }
 
             _ = RefreshVersionInfoAsync();
@@ -449,6 +436,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _vm.Dispose(); // Stops auto-attach manager and device stream first.
             RunDetachOnExitCleanup();
             _sshPortForwardingManager.Dispose();
+            StopUpdateChecks();
             _tray.Dispose();
         };
 

@@ -1,5 +1,6 @@
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
+using ComboBox = System.Windows.Controls.ComboBox;
 using Ellipse = System.Windows.Shapes.Ellipse;
 using Grid = System.Windows.Controls.Grid;
 using Rectangle = System.Windows.Shapes.Rectangle;
@@ -85,5 +86,5 @@ public partial class SetupOverlayControl : UserControl
 
     public CheckBox AutoRefresh => SetupAutoRefresh;
 
-    public CheckBox AutoUpdate => SetupAutoUpdate;
+    public ComboBox UpdateCheckModeCombo => SetupUpdateCheckModeCombo;
 }

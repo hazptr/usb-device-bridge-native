@@ -533,20 +533,75 @@
                                               ItemsSource="{Binding AvailableThemes}"
                                               SelectedItem="{Binding SelectedTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                                 </Grid>
-                                <Grid x:Name="SettingRowAutoUpdate"
-                                      Tag="auto update releases"
-                                      Visibility="Collapsed"
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SettingsSectionUpdates"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,10,0,0"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Updates"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+                                <Grid x:Name="SettingRowUpdateMode"
+                                      Tag="updates auto check releases github install download notify"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Update checks"
+                                                   Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="Automatic install: download new releases and prompt to install. Notify only: show a link to the releases page. Disabled: no checks."
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,2,12,0"/>
+                                    </StackPanel>
+                                    <ComboBox Grid.Column="1"
+                                              Style="{StaticResource DistroCombo}"
+                                              Width="190"
+                                              VerticalAlignment="Center"
+                                              ItemsSource="{Binding UpdateCheckModeOptions}"
+                                              SelectedItem="{Binding UpdateCheckModeSelected, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowCheckUpdates"
+                                      Tag="updates check now releases"
+                                      Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock x:Name="SettingsCheckUpdatesStatus"
+                                                   Text="Check for updates now"
+                                                   Foreground="{DynamicResource TextSecondary}"/>
+                                    </StackPanel>
+                                    <Button x:Name="SettingsCheckUpdatesButton"
+                                            Grid.Column="1"
+                                            Content="Check now"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="CheckForUpdates_OnClick"/>
+                                </Grid>
+                                <Grid x:Name="SettingRowOpenReleases"
+                                      Tag="updates releases page github open browser"
                                       Margin="0,0,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Automatic update checks"
+                                    <TextBlock Text="Open releases page"
                                                Foreground="{DynamicResource TextSecondary}"
                                                VerticalAlignment="Center"/>
-                                    <CheckBox Style="{StaticResource ModernCheckBox}"
-                                              Grid.Column="1"
-                                              IsChecked="{Binding AutoUpdateEnabled, Mode=TwoWay}"/>
+                                    <Button Content="Open"
+                                            Grid.Column="1"
+                                            Style="{StaticResource GhostBtn}"
+                                            Click="OpenReleasesPage_OnClick"/>
                                 </Grid>
                             </StackPanel>
                         </Border>

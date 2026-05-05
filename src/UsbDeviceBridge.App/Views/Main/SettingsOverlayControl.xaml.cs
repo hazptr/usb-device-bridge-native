@@ -2,6 +2,7 @@ using System.Windows;
 using Button = System.Windows.Controls.Button;
 using Border = System.Windows.Controls.Border;
 using StackPanel = System.Windows.Controls.StackPanel;
+using TextBlock = System.Windows.Controls.TextBlock;
 using TextBox = System.Windows.Controls.TextBox;
 using TextChangedEventArgs = System.Windows.Controls.TextChangedEventArgs;
 using TextChangedEventHandler = System.Windows.Controls.TextChangedEventHandler;
@@ -28,6 +29,10 @@ public partial class SettingsOverlayControl : UserControl
 
     public StackPanel ClientListHost => SettingsClientListHost;
 
+    public Button CheckUpdatesButton => SettingsCheckUpdatesButton;
+
+    public TextBlock CheckUpdatesStatus => SettingsCheckUpdatesStatus;
+
     public event RoutedEventHandler? CloseRequested;
 
     public event TextChangedEventHandler? SearchTextChanged;
@@ -41,6 +46,10 @@ public partial class SettingsOverlayControl : UserControl
     public event RoutedEventHandler? CopyVersionInfoRequested;
 
     public event RoutedEventHandler? AddClientRequested;
+
+    public event RoutedEventHandler? CheckUpdatesRequested;
+
+    public event RoutedEventHandler? OpenReleasesPageRequested;
 
     private void CloseSettingsButton_OnClick(object sender, RoutedEventArgs e)
         => CloseRequested?.Invoke(sender, e);
@@ -62,4 +71,10 @@ public partial class SettingsOverlayControl : UserControl
 
     private void AddClient_OnClick(object sender, RoutedEventArgs e)
         => AddClientRequested?.Invoke(sender, e);
+
+    private void CheckForUpdates_OnClick(object sender, RoutedEventArgs e)
+        => CheckUpdatesRequested?.Invoke(sender, e);
+
+    private void OpenReleasesPage_OnClick(object sender, RoutedEventArgs e)
+        => OpenReleasesPageRequested?.Invoke(sender, e);
 }

@@ -99,8 +99,6 @@ public partial class MainWindow
 
     private CheckBox SetupAutoRefresh => SetupOverlay.AutoRefresh;
 
-    private CheckBox SetupAutoUpdate => SetupOverlay.AutoUpdate;
-
     private void InitializeSetupOverlayHandlers()
     {
         // Guard against duplicate subscriptions if initialization is called again.
@@ -143,10 +141,21 @@ public partial class MainWindow
             _setupCustomSshClients.Add(client);
         SetupAddClientHostText.Text = string.Empty;
         _vm.StatusText = "Setup in progress";
+        InitializeSetupUpdateCheckCombo();
         UpdateSetupStepUi();
         ApplySetupCardPreviews();
         ApplySetupThemeCardSelection();
         SetupOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void InitializeSetupUpdateCheckCombo()
+    {
+        var combo = SetupOverlay.UpdateCheckModeCombo;
+        combo.ItemsSource = UsbDeviceBridge.App.Settings.UpdateCheckModes.All
+            .Select(UsbDeviceBridge.App.Settings.UpdateCheckModes.GetLabel)
+            .ToList();
+        combo.SelectedItem = UsbDeviceBridge.App.Settings.UpdateCheckModes.GetLabel(
+            UsbDeviceBridge.App.Settings.UpdateCheckModes.Automatic);
     }
 
     private void SetupThemeCard_OnClick(object sender, RoutedEventArgs e)
@@ -212,7 +221,7 @@ public partial class MainWindow
         _settings.MinimizeToTray = SetupEnableTray.IsChecked == true;
         _settings.StartMinimized = SetupStartMinimized.IsChecked == true;
         _settings.AutoRefreshEnabled = SetupAutoRefresh.IsChecked == true;
-        _settings.AutoUpdateEnabled = SetupAutoUpdate.IsChecked == true;
+        _settings.UpdateCheckMode = ResolveSetupUpdateCheckMode();
         _settings.AdditionalSshClients = _setupCustomSshClients
             .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -221,6 +230,24 @@ public partial class MainWindow
 
         await DismissSetupOverlayAsync();
         await TryInitializeDevicesAfterPrerequisitesAsync(verifyWithService: false);
+        StartUpdateChecks();
+    }
+
+    private string ResolveSetupUpdateCheckMode()
+    {
+        var combo = SetupOverlay.UpdateCheckModeCombo;
+        if (combo?.SelectedItem is string label)
+        {
+            var match = UsbDeviceBridge.App.Settings.UpdateCheckModes.All
+                .FirstOrDefault(m => string.Equals(
+                    UsbDeviceBridge.App.Settings.UpdateCheckModes.GetLabel(m),
+                    label,
+                    StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return match;
+        }
+
+        return UsbDeviceBridge.App.Settings.UpdateCheckModes.Automatic;
     }
 
     private async Task<bool> QueryPrerequisitesInstalledAsync()
