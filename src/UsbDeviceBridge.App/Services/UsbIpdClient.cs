@@ -82,13 +82,11 @@ public sealed class UsbIpdClient
                         + "This version only supports '--wsl'. Choose a WSL target or upgrade usbipd-win.");
                 }
 
-                args = ["attach", "--busid", busId, "--remote", targetName];
+                args = ["attach", "--busid", normalizedBusId, "--remote", targetName];
             }
             else
             {
-                args = string.IsNullOrWhiteSpace(targetName)
-                    ? ["attach", "--busid", busId, "--wsl"]
-                    : ["attach", "--busid", busId, "--wsl", targetName];
+                args = ["attach", "--busid", normalizedBusId, "--wsl"];
             }
 
             result = await RunCliAsync(args, ct, AttachTimeout);
@@ -118,32 +116,6 @@ public sealed class UsbIpdClient
                 + "This version only supports '--wsl'. Choose a WSL target or upgrade usbipd-win.");
         }
 
-        if (
-            normalizedType == AttachTargetType.Wsl
-            && !string.IsNullOrWhiteSpace(targetName)
-            && (
-                message.Contains("--distribution", StringComparison.OrdinalIgnoreCase)
-                || message.Contains("unrecognized", StringComparison.OrdinalIgnoreCase)
-            )
-        )
-        {
-            try
-            {
-                var (fallbackCode, fallbackStdout, fallbackStderr) = await RunCliAsync(
-                    ["attach", "--busid", busId, "--wsl", "--distribution", targetName],
-                    ct,
-                    AttachTimeout
-                );
-                if (fallbackCode == 0)
-                    return (true, "");
-
-                return (false, $"{fallbackStderr}\n{fallbackStdout}".Trim());
-            }
-            catch (AppUsbIpdTimeoutException)
-            {
-                return (false, $"usbipd attach timed out after {(int)AttachTimeout.TotalSeconds} seconds.");
-            }
-        }
 
         return (false, message);
     }

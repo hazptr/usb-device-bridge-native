@@ -69,6 +69,12 @@ public sealed class LocalDeviceManager
         }
     }
 
+    public async Task<bool> HasAnyRunningWslDistroAsync(CancellationToken ct = default)
+    {
+        var distros = await _wslUserSpaceInterop.QueryDistrosAsync(ct);
+        return distros.Any(d => d.IsRunning);
+    }
+
     /// <summary>
     /// Attaches device to an explicit target in user context.
     /// Caller must bind first if device is Available.

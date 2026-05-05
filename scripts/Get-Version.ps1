@@ -42,6 +42,10 @@ function Get-GitVersion {
     # Extract "Major.Minor.Patch" from the front.
     $semver = if ($informational -match '^(\d+\.\d+\.\d+)') { $Matches[1] } else { '0.0.0' }
 
+    # For versioned releases (exact tag or near-tag), remove the "-0" from "v1.1.1-0-g<hash>"
+    # to produce "v1.1.1-g<hash>". This keeps only the hash suffix, not the commit count.
+    $informational = $informational -replace '^(\d+\.\d+\.\d+)-0-', '$1-'
+
     return [PSCustomObject]@{
         AssemblyVersion      = $semver
         InformationalVersion = $informational

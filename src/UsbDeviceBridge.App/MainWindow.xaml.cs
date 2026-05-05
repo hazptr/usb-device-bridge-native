@@ -338,7 +338,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _sshPortForwardingManager,
             () => _settings.SshPortForwardMode);
         var rememberedStore = new AppRememberedDeviceStore();
-        var autoAttachManager = new LocalAutoAttachManager(_client, _deviceManager, rememberedStore, RequestForceRetryAsync);
+        var autoAttachManager = new LocalAutoAttachManager(
+            _client,
+            _deviceManager,
+            rememberedStore,
+            RequestForceRetryAsync,
+            getFirewallFixPolicy: () => _settings.FirewallFixPolicy,
+            requestFirewallConsentAsync: RequestFirewallConsentAsync);
 
         _settingsResetService = new SettingsResetService(
             rememberedStore, _deviceManager, _client, _settingsService);

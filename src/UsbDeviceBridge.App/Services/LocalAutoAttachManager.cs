@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using UsbDeviceBridge.App.Models;
@@ -19,6 +20,8 @@ public sealed class LocalAutoAttachManager : IDisposable
     private readonly LocalDeviceManager _deviceManager;
     private readonly AppRememberedDeviceStore _rememberedStore;
     private readonly Func<ForceRetryRequest, Task<ForceRetryDecision>>? _requestForceRetryAsync;
+    private readonly Func<string>? _getFirewallFixPolicy;
+    private readonly Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? _requestFirewallConsentAsync;
     private readonly ILogger<LocalAutoAttachManager> _logger;
     private readonly ConcurrentDictionary<string, AttachRetryState> _retryStates = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _nextRetryTime = new();
@@ -40,12 +43,16 @@ public sealed class LocalAutoAttachManager : IDisposable
         LocalDeviceManager deviceManager,
         AppRememberedDeviceStore rememberedStore,
         Func<ForceRetryRequest, Task<ForceRetryDecision>>? requestForceRetryAsync = null,
+        Func<string>? getFirewallFixPolicy = null,
+        Func<FirewallConsentRequest, Task<FirewallConsentDecision>>? requestFirewallConsentAsync = null,
         ILogger<LocalAutoAttachManager>? logger = null)
     {
         _client = client;
         _deviceManager = deviceManager;
         _rememberedStore = rememberedStore;
         _requestForceRetryAsync = requestForceRetryAsync;
+        _getFirewallFixPolicy = getFirewallFixPolicy;
+        _requestFirewallConsentAsync = requestFirewallConsentAsync;
         _logger = logger ?? NullLogger<LocalAutoAttachManager>.Instance;
     }
 
@@ -113,6 +120,10 @@ public sealed class LocalAutoAttachManager : IDisposable
 
         CleanUpDisappearedNonRemembered(devicesByInstanceId, remembered);
 
+        // Check once per iteration whether any WSL distros are running, to avoid
+        // hammering attach attempts (and burning retry budget) when WSL is simply stopped.
+        bool? wslHasRunningDistro = null;
+
         foreach (var (instanceId, target) in remembered)
         {
             if (!devicesByInstanceId.TryGetValue(instanceId, out var device))
@@ -139,6 +150,25 @@ public sealed class LocalAutoAttachManager : IDisposable
 
             if (_nextRetryTime.TryGetValue(instanceId, out var nextTime) && nextTime > now)
                 continue;
+
+            if (target.Type == AttachTargetType.Wsl)
+            {
+                if (wslHasRunningDistro is null)
+                {
+                    try { wslHasRunningDistro = await _deviceManager.HasAnyRunningWslDistroAsync(ct); }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "WSL availability check failed; skipping WSL auto-attach this iteration");
+                        wslHasRunningDistro = false;
+                    }
+                }
+
+                if (!wslHasRunningDistro.Value)
+                {
+                    _logger.LogDebug("Skipping WSL auto-attach for {InstanceId}: no WSL distros are running", instanceId);
+                    continue;
+                }
+            }
 
             await AttemptAttachAsync(instanceId, device.BusId, device.HardwareId, target, state, now, ct);
         }
@@ -304,6 +334,21 @@ public sealed class LocalAutoAttachManager : IDisposable
                     return;
                 }
 
+                // WSL distro not running is transient — skip without consuming retry budget.
+                if (IsWslNotRunning(msg))
+                {
+                    _logger.LogDebug("Auto-attach skipped for {InstanceId}: target WSL distro not running", instanceId);
+                    if (didBind) await TryUnbindAsync(busId, hardwareId);
+                    return;
+                }
+
+                // Firewall block — apply fix per policy, matching the manual-attach flow.
+                if (target.Type == AttachTargetType.Wsl && FirewallSignatureClassifier.IsFirewallBlock(msg))
+                {
+                    await HandleFirewallBlockAsync(instanceId, busId, hardwareId, target, wslDistro, didBind, now, ct);
+                    return;
+                }
+
                 // Attach failed after bind — unbind so device doesn't stay "shared".
                 if (didBind)
                     await TryUnbindAsync(busId, hardwareId);
@@ -395,6 +440,93 @@ public sealed class LocalAutoAttachManager : IDisposable
             IsAutoAttach: true));
 
         return decision;
+    }
+
+    private async Task HandleFirewallBlockAsync(
+        string instanceId,
+        string busId,
+        string hardwareId,
+        AttachTarget target,
+        string wslDistro,
+        bool didBind,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        var policy = NormalizeFirewallPolicy(_getFirewallFixPolicy?.Invoke());
+
+        if (policy == "ask")
+        {
+            if (_requestFirewallConsentAsync is null)
+            {
+                policy = "never";
+            }
+            else
+            {
+                var decision = await _requestFirewallConsentAsync(new FirewallConsentRequest(
+                    DeviceDescription: instanceId,
+                    InstanceId: instanceId,
+                    BusId: busId,
+                    WslDistro: wslDistro,
+                    IsAutoAttach: true));
+
+                policy = decision.AllowNow ? "always" : "never";
+            }
+        }
+
+        if (policy == "never")
+        {
+            if (didBind) await TryUnbindAsync(busId, hardwareId);
+            _logger.LogDebug("Auto-attach firewall fix blocked by policy for {InstanceId}", instanceId);
+            RecordFailure(instanceId, now, "Firewall is blocking the connection.");
+            return;
+        }
+
+        // policy == "always": apply fix then retry.
+        try
+        {
+            var fixResp = await _client.Admin.ApplyFirewallFixAsync(
+                new ApplyFirewallFixRequest(),
+                cancellationToken: ct);
+
+            if (!fixResp.Ok)
+            {
+                if (didBind) await TryUnbindAsync(busId, hardwareId);
+                RecordFailure(instanceId, now, $"Firewall fix failed: {fixResp.Message}");
+                return;
+            }
+        }
+        catch (RpcException ex)
+        {
+            if (didBind) await TryUnbindAsync(busId, hardwareId);
+            RecordFailure(instanceId, now, $"Firewall fix failed: {ex.Status.Detail}");
+            return;
+        }
+
+        var (retryOk, retryMsg) = await _deviceManager.AttachAsync(busId, target, ct);
+        if (retryOk)
+        {
+            _logger.LogInformation("Auto-attached {InstanceId} after applying firewall fix", instanceId);
+            _retryStates[instanceId] = new AttachRetryState { LastSuccessUtc = now };
+            _nextRetryTime.TryRemove(instanceId, out _);
+            AutoAttachNotification?.Invoke(
+                AttachToastMessages.AutoAttachFirewallFixApplied(instanceId),
+                NotificationSeverity.Info);
+        }
+        else
+        {
+            if (didBind) await TryUnbindAsync(busId, hardwareId);
+            RecordFailure(instanceId, now, retryMsg);
+        }
+    }
+
+    private static bool IsWslNotRunning(string msg) =>
+        msg.Contains("is not running", StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeFirewallPolicy(string? value)
+    {
+        if (string.Equals(value, "always", StringComparison.OrdinalIgnoreCase)) return "always";
+        if (string.Equals(value, "never", StringComparison.OrdinalIgnoreCase)) return "never";
+        return "ask";
     }
 
     private async Task TryUnbindAsync(string busId, string hardwareId = "")
