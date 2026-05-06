@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using UsbDeviceBridge.App.Settings;
@@ -18,6 +19,7 @@ public sealed record UpdateInfo(
     string ReleasePageUrl,
     string? MsiAssetUrl,
     string? MsiAssetName,
+    string? Sha256AssetUrl,
     string? ReleaseNotes);
 
 /// <summary>
@@ -177,7 +179,7 @@ public sealed class UpdateCheckService : IDisposable
                 return new UpdateCheckResult { Outcome = UpdateCheckOutcome.UpdateAvailable, Update = update };
             }
 
-            var existing = TryFindAlreadyDownloaded(update.MsiAssetName);
+            var existing = TryFindAlreadyDownloaded(update.TagName, update.MsiAssetName);
             if (existing is not null)
             {
                 lock (_gate) _lastDownloadedFile = existing;
@@ -185,7 +187,7 @@ public sealed class UpdateCheckService : IDisposable
                 return new UpdateCheckResult { Outcome = UpdateCheckOutcome.UpdateAvailable, Update = update };
             }
 
-            var downloaded = await DownloadAssetAsync(update.MsiAssetUrl, update.MsiAssetName, ct);
+            var downloaded = await DownloadAssetAsync(update.MsiAssetUrl, update.TagName, update.MsiAssetName, update.Sha256AssetUrl, ct);
             lock (_gate) _lastDownloadedFile = downloaded;
             UpdateDownloaded?.Invoke(update, downloaded);
             return new UpdateCheckResult { Outcome = UpdateCheckOutcome.UpdateAvailable, Update = update };
@@ -202,13 +204,14 @@ public sealed class UpdateCheckService : IDisposable
     }
 
     /// <summary>
-    /// Launches the downloaded MSI installer. The MSI runs as Administrator (ShellExecute will trigger UAC).
-    /// Returns true if the installer process was started — caller is expected to shut down the app afterwards.
+    /// Launches the MSI installer in passive mode (progress bar, no wizard pages).
+    /// Returns the started Process on success, null if the file is missing or the user cancels UAC.
+    /// Caller is expected to shut down the app after this returns non-null.
     /// </summary>
-    public bool LaunchInstaller(string msiPath)
+    public Process? LaunchInstaller(string msiPath)
     {
         if (string.IsNullOrEmpty(msiPath) || !File.Exists(msiPath))
-            return false;
+            return null;
 
         try
         {
@@ -220,12 +223,13 @@ public sealed class UpdateCheckService : IDisposable
             };
             psi.ArgumentList.Add("/i");
             psi.ArgumentList.Add(msiPath);
-            Process.Start(psi);
-            return true;
+            psi.ArgumentList.Add("/passive");
+            psi.ArgumentList.Add("/norestart");
+            return Process.Start(psi);
         }
         catch
         {
-            return false;
+            return null;
         }
     }
 
@@ -277,20 +281,25 @@ public sealed class UpdateCheckService : IDisposable
             !string.IsNullOrEmpty(a.Name)
             && a.Name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase));
 
+        var sha256 = release.Assets?.FirstOrDefault(a =>
+            !string.IsNullOrEmpty(a.Name)
+            && a.Name.EndsWith(".sha256", StringComparison.OrdinalIgnoreCase));
+
         return new UpdateInfo(
             Version: version,
             TagName: release.TagName,
             ReleasePageUrl: string.IsNullOrEmpty(release.HtmlUrl) ? ReleasesPageUrl : release.HtmlUrl,
             MsiAssetUrl: msi?.BrowserDownloadUrl,
             MsiAssetName: msi?.Name,
+            Sha256AssetUrl: sha256?.BrowserDownloadUrl,
             ReleaseNotes: release.Body);
     }
 
-    private string? TryFindAlreadyDownloaded(string assetName)
+    private string? TryFindAlreadyDownloaded(string tagName, string assetName)
     {
         try
         {
-            var path = Path.Combine(_downloadDir, assetName);
+            var path = Path.Combine(_downloadDir, VersionedFileName(tagName, assetName));
             return File.Exists(path) ? path : null;
         }
         catch
@@ -299,9 +308,10 @@ public sealed class UpdateCheckService : IDisposable
         }
     }
 
-    private async Task<string> DownloadAssetAsync(string url, string assetName, CancellationToken ct)
+    private async Task<string> DownloadAssetAsync(string url, string tagName, string assetName, string? sha256Url, CancellationToken ct)
     {
-        var finalPath = Path.Combine(_downloadDir, assetName);
+        var localName = VersionedFileName(tagName, assetName);
+        var finalPath = Path.Combine(_downloadDir, localName);
         var tempPath = finalPath + ".part";
 
         if (File.Exists(tempPath))
@@ -317,15 +327,39 @@ public sealed class UpdateCheckService : IDisposable
             await src.CopyToAsync(dst, ct);
         }
 
+        if (sha256Url is not null)
+            await VerifySha256Async(tempPath, sha256Url, ct);
+
         if (File.Exists(finalPath))
         {
             try { File.Delete(finalPath); } catch { }
         }
 
         File.Move(tempPath, finalPath);
-        PruneOldDownloads(keep: assetName);
+        PruneOldDownloads(keep: localName);
         return finalPath;
     }
+
+    private async Task VerifySha256Async(string filePath, string sha256Url, CancellationToken ct)
+    {
+        var checksumText = await _http.GetStringAsync(sha256Url, ct);
+        // Format written by CI: "{HASH}  {filename}"
+        var expectedHash = checksumText.Trim().Split([' ', '\t'], 2)[0].ToUpperInvariant();
+
+        using var sha = SHA256.Create();
+        await using var stream = File.OpenRead(filePath);
+        var actualHash = Convert.ToHexString(await sha.ComputeHashAsync(stream, ct));
+
+        if (!string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase))
+        {
+            try { File.Delete(filePath); } catch { }
+            throw new InvalidDataException(
+                $"SHA256 mismatch for downloaded installer: expected {expectedHash}, got {actualHash}");
+        }
+    }
+
+    private static string VersionedFileName(string tagName, string assetName) =>
+        $"{tagName}_{assetName}";
 
     private void PruneOldDownloads(string keep)
     {

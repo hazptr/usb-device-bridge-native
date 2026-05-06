@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using UsbDeviceBridge.App.Models;
 using UsbDeviceBridge.App.Services;
@@ -121,7 +122,7 @@ public partial class MainWindow
                 : Environment.NewLine + Environment.NewLine + Truncate(update.ReleaseNotes, 600);
 
             var message =
-                $"Version {update.TagName} is ready to install. The app will close and the installer will run."
+                $"Version {update.TagName} is ready to install. The app will close, install silently, and relaunch automatically."
                 + notes;
 
             var install = ShowThemedConfirmationDialog(
@@ -136,7 +137,8 @@ public partial class MainWindow
             if (_updateCheckService is null)
                 return;
 
-            if (!_updateCheckService.LaunchInstaller(filePath))
+            var msiProcess = _updateCheckService.LaunchInstaller(filePath);
+            if (msiProcess is null)
             {
                 ShowThemedNoticeDialog(
                     "Install failed",
@@ -144,6 +146,8 @@ public partial class MainWindow
                     "OK");
                 return;
             }
+
+            TryStartRelaunchHelper();
 
             _exitingFromTray = true;
             _tray.HideIcon();
@@ -240,6 +244,52 @@ public partial class MainWindow
     private void OpenReleasesPage_OnClick(object sender, RoutedEventArgs e)
     {
         OpenReleasesPage();
+    }
+
+    private static void TryStartRelaunchHelper()
+    {
+        try
+        {
+            var appExePath = Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrEmpty(appExePath))
+                return;
+
+            const string script = """
+                param([string]$AppPath)
+                Start-Sleep -Seconds 5
+                $deadline = [datetime]::UtcNow.AddMinutes(10)
+                while ([datetime]::UtcNow -lt $deadline) {
+                    if (-not (Get-Process -Name msiexec -ErrorAction SilentlyContinue)) { break }
+                    Start-Sleep -Seconds 3
+                }
+                Start-Sleep -Seconds 2
+                if (Test-Path $AppPath) { Start-Process $AppPath }
+                """;
+
+            var scriptPath = Path.Combine(Path.GetTempPath(), "UsbDeviceBridgeRelaunch.ps1");
+            File.WriteAllText(scriptPath, script);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-NonInteractive");
+            psi.ArgumentList.Add("-WindowStyle");
+            psi.ArgumentList.Add("Hidden");
+            psi.ArgumentList.Add("-ExecutionPolicy");
+            psi.ArgumentList.Add("Bypass");
+            psi.ArgumentList.Add("-File");
+            psi.ArgumentList.Add(scriptPath);
+            psi.ArgumentList.Add("-AppPath");
+            psi.ArgumentList.Add(appExePath);
+            Process.Start(psi);
+        }
+        catch
+        {
+            // Best-effort — install still proceeds, user just has to relaunch manually.
+        }
     }
 
     private static string Truncate(string text, int max)
