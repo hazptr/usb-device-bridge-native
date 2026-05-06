@@ -344,7 +344,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             () => _settings.FirewallFixPolicy,
             RequestFirewallConsentAsync,
             RequestForceRetryAsync,
-            () => IsActive && Visibility == Visibility.Visible && WindowState != WindowState.Minimized,
+            () => IsActive,
             async (title, message, severity) =>
             {
                 if (_settings.WindowsNotificationsEnabled)
