@@ -85,13 +85,15 @@ public sealed class AdminServiceImpl : AdminService.AdminServiceBase
     {
         _logger.LogInformation("Firewall fix requested by app");
 
-        var (ok, err) = await WslFirewallFixer.ApplyPublicProfileFixAsync(
+        var (status, detail) = await WslFirewallFixer.ApplyAndVerifyAsync(
             _logger, context.CancellationToken);
 
         return new ApplyFirewallFixResponse
         {
-            Ok = ok,
-            Message = ok ? "Firewall fix applied." : err,
+            Ok = status == WslFirewallFixer.FixStatus.Ok,
+            Message = detail.Length > 0
+                ? detail
+                : (status == WslFirewallFixer.FixStatus.Ok ? "Firewall fix applied." : "Firewall fix failed."),
         };
     }
 }

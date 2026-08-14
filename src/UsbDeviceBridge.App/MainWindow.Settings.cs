@@ -351,18 +351,38 @@ public partial class MainWindow
             + "elif command -v dnf >/dev/null 2>&1; then dnf install -y usbip usbutils hwdata; "
             + "elif command -v pacman >/dev/null 2>&1; then pacman -Sy --noconfirm usbip usbutils hwdata; "
             + "else echo 'No supported package manager found (apt, dnf, pacman).' >&2; exit 1; fi; "
-            // 2. Load the vhci_hcd kernel module
+            // 2. Load the vhci_hcd kernel module now, and persist it across reboots.
+            //    Without the modules-load.d entry the module is gone after a reboot and
+            //    every subsequent attach fails with "usbip: error: open vhci_driver".
             + "modprobe vhci_hcd || echo 'Warning: Failed to load vhci_hcd kernel module (may not be available in this environment)'; "
-            // 3. Write a sudoers rule so non-interactive sudo usbip attach works
+            + "mkdir -p /etc/modules-load.d && echo vhci_hcd > /etc/modules-load.d/vhci-hcd.conf; "
+            // 3. Write a sudoers rule so non-interactive sudo works for the three commands
+            //    the attach path needs: usbip itself, reloading vhci_hcd if it is missing,
+            //    and settling udev between attaches. modprobe/udevadm are argument-scoped.
+            //    The udevadm arguments must match RemoteUsbIpCommands exactly, because
+            //    sudoers argument matching is exact rather than prefix-based.
             + "USBIP_BIN=$(command -v usbip 2>/dev/null || echo /usr/sbin/usbip); "
+            + "MODPROBE_BIN=$(command -v modprobe 2>/dev/null || echo /usr/sbin/modprobe); "
+            + "UDEVADM_BIN=$(command -v udevadm 2>/dev/null || echo /usr/bin/udevadm); "
             + "RULE_USER=${SUDO_USER:-$USER}; "
-            + "echo \"${RULE_USER} ALL=(ALL) NOPASSWD: ${USBIP_BIN}\" > /etc/sudoers.d/usbip-attach && "
-            + "chmod 0440 /etc/sudoers.d/usbip-attach && visudo -c -f /etc/sudoers.d/usbip-attach && "
-            + "echo 'sudoers rule written for usbip'";
+            + "if [ -z \"$RULE_USER\" ]; then echo 'Could not determine which user to grant passwordless sudo to.' >&2; exit 1; fi; "
+            // Validate in a temp file and only then install. Writing straight to
+            // /etc/sudoers.d left an invalid rule in place when visudo rejected it, and
+            // every later sudo on that host then reported a parse error.
+            + "TMP_RULE=$(mktemp); "
+            + $"echo \"${{RULE_USER}} ALL=(ALL) NOPASSWD: ${{USBIP_BIN}}, ${{MODPROBE_BIN}} vhci_hcd, ${{UDEVADM_BIN}} {RemoteUsbIpCommands.UdevSettleArgs}\" > \"$TMP_RULE\"; "
+            + "if visudo -c -f \"$TMP_RULE\" >/dev/null 2>&1; then "
+            + "install -m 0440 -o root -g root \"$TMP_RULE\" /etc/sudoers.d/usbip-attach && rm -f \"$TMP_RULE\" && echo 'sudoers rule written for usbip'; "
+            + "else "
+            + "echo 'Generated sudoers rule was rejected by visudo; nothing was installed:' >&2; cat \"$TMP_RULE\" >&2; rm -f \"$TMP_RULE\"; exit 1; "
+            + "fi";
 
-        var escaped = setupScript.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        // Single-quote the script for the remote login shell. With double quotes that shell
+        // expanded ${RULE_USER}/${USBIP_BIN} before the inner sh assigned them, so the
+        // sudoers line was written with an empty user and empty paths.
+        var escaped = setupScript.Replace("'", "'\\''");
         var sudoPrefix = requirePassword ? "sudo -S -p ''" : "sudo -n";
-        return $"{sudoPrefix} sh -lc \"{escaped}\"";
+        return $"{sudoPrefix} sh -lc '{escaped}'";
     }
 
     private static bool RequiresSudoPassword(string output)
@@ -416,6 +436,13 @@ public partial class MainWindow
 
         psi.ArgumentList.Add("-o");
         psi.ArgumentList.Add("BatchMode=yes");
+        // See UsbIpdClient.RunSshCommandAsync: a host configured with RemoteCommand cannot
+        // also be given a command line, and RequestTTY=yes would break the piped sudo -S
+        // password read below by turning stdin into a pty.
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("RemoteCommand=none");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("RequestTTY=no");
         psi.ArgumentList.Add(sshHost);
         psi.ArgumentList.Add(actualCommand);
 

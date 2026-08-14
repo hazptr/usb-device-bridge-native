@@ -312,7 +312,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _client = new BridgeServiceClient(serviceAddress);
         _wslUserSpaceInterop = new WslUserSpaceInterop();
         _sshConfigParser = new SshConfigParser();
-        _sshPortForwardingManager = new SshPortForwardingManager();
+        // Sweep before creating any tunnel of this run: a crash or force-kill leaves
+        // `ssh -N -R` running, still holding the remote's forwarded port, with nothing
+        // tracking it. Only processes this app recorded are killed.
+        var tunnelRegistry = new SshTunnelRegistry();
+        tunnelRegistry.SweepOrphans();
+        _sshPortForwardingManager = new SshPortForwardingManager(tunnelRegistry: tunnelRegistry);
 
         var usbIpdClient = new UsbIpdClient();
         _deviceManager = new LocalDeviceManager(

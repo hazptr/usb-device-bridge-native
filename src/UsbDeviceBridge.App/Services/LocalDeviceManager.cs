@@ -20,6 +20,12 @@ public sealed class LocalDeviceManager
     private readonly Func<string> _getSshPortForwardMode;
     private readonly ILogger<LocalDeviceManager> _logger;
 
+    // Bus id -> SSH host it is currently attached to. Detach only receives a bus id, so
+    // this is the only record of which client owns the device and therefore which remote
+    // import and reverse tunnel have to be cleaned up.
+    private readonly Dictionary<string, string> _sshAttachments = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _sshAttachmentsLock = new();
+
     public LocalDeviceManager(
         UsbIpdClient usbIpdClient,
         WslUserSpaceInterop? wslUserSpaceInterop = null,
@@ -152,24 +158,35 @@ public sealed class LocalDeviceManager
             if (!bindResult.Ok)
                 return bindResult;
 
-            var hostIp = ResolveHostIpForSshClient();
-            if (string.IsNullOrWhiteSpace(hostIp))
-            {
-                return (false,
-                    "Could not determine a reachable host IP for SSH client attach. "
-                    + "Ensure networking is available and retry.");
-            }
-
             // Establish a persistent reverse SSH tunnel (ssh -N -R) so that
             // 127.0.0.1:3240 on the remote machine forwards to this host's usbipd port.
             // This process must stay alive while the device is attached; it is kept by
             // SshPortForwardingManager and disposed when the app exits or the device detaches.
+            //
+            // The forward destination is resolved by the SSH client (this machine), so
+            // loopback is both correct and stable. Using a routed interface address here
+            // instead would break whenever DHCP reassigned the address, and could pick a
+            // VPN or WSL vEthernet adapter that usbipd is not reachable on.
+            var normalizedBusId = busId.Trim();
             var tunnelResult = await _sshPortForwardingManager.EnsureReverseTunnelAsync(
-                sshTarget, hostIp, 3240, ct);
+                sshTarget, "127.0.0.1", 3240, normalizedBusId, ct);
             if (!tunnelResult.Ok)
                 return (false, $"Could not establish SSH reverse tunnel to '{sshTarget}': {tunnelResult.Message}");
 
-            return await _usbIpdClient.AttachViaSshClientAsync(sshTarget, busId, ct);
+            var attachResult = await _usbIpdClient.AttachViaSshClientAsync(sshTarget, busId, ct);
+
+            if (attachResult.Ok)
+            {
+                lock (_sshAttachmentsLock)
+                    _sshAttachments[normalizedBusId] = sshTarget;
+
+                return attachResult;
+            }
+
+            // A failed attach leaves nothing to clean up on detach, so release the tunnel
+            // here or a retry loop accumulates one ssh process per failed attempt.
+            await _sshPortForwardingManager.ReleaseReverseTunnelAsync(sshTarget, normalizedBusId);
+            return attachResult;
         }
         catch (Exception ex)
         {
@@ -191,15 +208,50 @@ public sealed class LocalDeviceManager
         };
     }
 
+    /// <summary>
+    /// Reduces an ssh target to the part DNS can actually resolve.
+    /// </summary>
+    /// <remarks>
+    /// ssh accepts forms DNS does not: <c>user@host</c>, <c>host:port</c>, and bracketed
+    /// IPv6 literals. Resolving the raw target made every <c>user@host</c> client fail with
+    /// "could not be resolved" even though ssh itself handled it fine.
+    /// </remarks>
+    internal static string ExtractResolvableHostname(string sshTarget)
+    {
+        var value = (sshTarget ?? string.Empty).Trim();
+
+        var userSeparator = value.LastIndexOf('@');
+        if (userSeparator >= 0)
+            value = value[(userSeparator + 1)..];
+
+        if (value.StartsWith('['))
+        {
+            var closingBracket = value.IndexOf(']');
+            if (closingBracket > 1)
+                return value[1..closingBracket];
+        }
+
+        // Only strip a trailing :port. A bare IPv6 literal has several colons, and
+        // splitting on the last one would corrupt it.
+        var portSeparator = value.LastIndexOf(':');
+        if (portSeparator > 0
+            && value.IndexOf(':') == portSeparator
+            && int.TryParse(value[(portSeparator + 1)..], out _))
+        {
+            value = value[..portSeparator];
+        }
+
+        return value;
+    }
+
     private static async Task<(bool IsReachable, string Message)> ValidateAdHocHostReachabilityAsync(
         string host,
         CancellationToken ct)
     {
-        var normalized = host.Trim();
-        var hostname = normalized;
-        var portSeparator = normalized.LastIndexOf(':');
-        if (portSeparator > 0)
-            hostname = normalized[..portSeparator];
+        var hostname = ExtractResolvableHostname(host);
+
+        if (hostname.Length == 0)
+            return (false, $"SSH target '{host}' does not contain a host name.");
 
         if (string.Equals(hostname, "localhost", StringComparison.OrdinalIgnoreCase)
             || string.Equals(hostname, "127.0.0.1", StringComparison.OrdinalIgnoreCase))
@@ -221,44 +273,43 @@ public sealed class LocalDeviceManager
         return (true, string.Empty);
     }
 
-    private static string ResolveHostIpForSshClient()
-    {
-        try
-        {
-            // Uses route selection to pick the primary outbound local interface address.
-            using var udp = new System.Net.Sockets.UdpClient();
-            udp.Connect("8.8.8.8", 53);
-            if (udp.Client.LocalEndPoint is IPEndPoint endpoint
-                && endpoint.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
-                && !IPAddress.IsLoopback(endpoint.Address))
-            {
-                return endpoint.Address.ToString();
-            }
-        }
-        catch
-        {
-            // Fall through to hostname-based lookup.
-        }
-
-        try
-        {
-            var hostName = Dns.GetHostName();
-            var addresses = Dns.GetHostAddresses(hostName)
-                .Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
-                .ToArray();
-            return addresses.FirstOrDefault()?.ToString() ?? string.Empty;
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
     public async Task<(bool Ok, string Message)> DetachAsync(string busId, CancellationToken ct)
     {
         try
         {
-            return await _usbIpdClient.DetachAsync(busId, ct);
+            var normalizedBusId = (busId ?? string.Empty).Trim();
+
+            string? sshTarget;
+            lock (_sshAttachmentsLock)
+                _sshAttachments.TryGetValue(normalizedBusId, out sshTarget);
+
+            if (string.IsNullOrEmpty(sshTarget))
+                return await _usbIpdClient.DetachAsync(normalizedBusId, ct);
+
+            // Release the client's vhci port first, while the tunnel it travels over is
+            // still up. Doing this after the local detach would leave the remote holding a
+            // dead import, which occupies the port and breaks the next attach of this bus id.
+            var remoteDetach = await _usbIpdClient.DetachViaSshClientAsync(sshTarget, normalizedBusId, ct);
+            if (!remoteDetach.Ok)
+            {
+                // Best effort only: a client we cannot reach must not block the local
+                // detach, or the device stays bound here with no way to release it.
+                _logger.LogWarning(
+                    "Remote usbip detach on '{SshTarget}' failed for {BusId}: {Message}",
+                    sshTarget, normalizedBusId, remoteDetach.Message);
+            }
+
+            try
+            {
+                return await _usbIpdClient.DetachAsync(normalizedBusId, ct);
+            }
+            finally
+            {
+                lock (_sshAttachmentsLock)
+                    _sshAttachments.Remove(normalizedBusId);
+
+                await _sshPortForwardingManager.ReleaseReverseTunnelAsync(sshTarget, normalizedBusId);
+            }
         }
         catch (Exception ex)
         {

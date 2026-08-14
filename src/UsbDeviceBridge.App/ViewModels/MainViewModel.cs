@@ -1056,7 +1056,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     return new AttachAttemptResult
                     {
                         Ok = false,
-                        Message = $"Firewall fix failed: {fixResp.Message}",
+                        Message = fixResp.Message,
                         FailReason = AttachFailReason.FirewallFixFailed,
                     };
             }
@@ -1065,7 +1065,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 return new AttachAttemptResult
                 {
                     Ok = false,
-                    Message = $"Firewall fix failed: {ex.Status.Detail}",
+                    Message = ex.Status.Detail,
                     FailReason = AttachFailReason.FirewallFixFailed,
                 };
             }
@@ -1095,7 +1095,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         => response.FailReason switch
         {
             AttachFailReason.PolicyPrevented => AttachToastMessages.PolicyPrevented(description),
-            AttachFailReason.FirewallFixFailed => AttachToastMessages.FirewallFixFailed(description),
+            AttachFailReason.FirewallFixFailed => AttachToastMessages.FirewallFixFailed(description, response.Message),
             AttachFailReason.StillFailedAfterFix => AttachToastMessages.StillFailedAfterFix(description),
             _ => response.Message.Length > 0 ? response.Message : "Attach failed.",
         };

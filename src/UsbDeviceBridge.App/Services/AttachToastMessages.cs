@@ -21,11 +21,15 @@ public static class AttachToastMessages
          + "Open the prompt or set Firewall recovery policy to Always in Settings.";
 
     /// <summary>
-    /// The service attempted the firewall fix but the PowerShell command failed.
+    /// The service attempted the firewall fix but it failed or did not take effect.
+    /// <paramref name="detail"/> carries the reason reported by the service — most usefully
+    /// when group policy discards the fix, which no local change can work around.
     /// </summary>
-    public static string FirewallFixFailed(string deviceDescription)
-        => $"Automatic firewall recovery failed for \"{deviceDescription}\". "
-         + "Check Windows Firewall settings or try again.";
+    public static string FirewallFixFailed(string deviceDescription, string? detail = null)
+        => string.IsNullOrWhiteSpace(detail)
+            ? $"Automatic firewall recovery failed for \"{deviceDescription}\". "
+              + "Check Windows Firewall settings or try again."
+            : $"Automatic firewall recovery failed for \"{deviceDescription}\": {detail.Trim()}";
 
     /// <summary>
     /// The firewall fix was applied but usbipd attach still failed on the retry.

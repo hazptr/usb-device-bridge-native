@@ -11,7 +11,12 @@ public sealed class UsbIpdClient
 {
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CapabilityProbeTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan SshAttachTimeout = TimeSpan.FromSeconds(20);
+    // The remote script retries attach up to RemoteUsbIpCommands.AttachAttempts times,
+    // each with a short enumeration poll, so this must comfortably exceed that budget.
+    private static readonly TimeSpan SshAttachTimeout = TimeSpan.FromSeconds(90);
+    // Detach does not retry or poll, and it runs on the interactive detach path, so it
+    // must give up quickly rather than hold the UI on an unreachable client.
+    private static readonly TimeSpan SshDetachTimeout = TimeSpan.FromSeconds(15);
 
     private readonly string _usbIpdPath;
     private readonly string _tcpHost;
@@ -123,7 +128,9 @@ public sealed class UsbIpdClient
     public async Task<(bool Ok, string Message)> AttachViaSshClientAsync(
         string sshTarget,
         string busId,
-        CancellationToken ct)
+        CancellationToken ct,
+        string remoteUsbIpHost = "127.0.0.1",
+        int remoteUsbIpPort = 3240)
     {
         if (string.IsNullOrWhiteSpace(sshTarget))
             return (false, "SSH target name is required.");
@@ -131,26 +138,51 @@ public sealed class UsbIpdClient
         if (string.IsNullOrWhiteSpace(busId))
             return (false, "Bus ID is required.");
 
-        var normalizedBusId = busId.Trim();
+        if (!RemoteUsbIpCommands.IsValidBusId(busId))
+            return (false, $"Bus ID '{busId}' is not a valid USB bus id.");
 
-        // usbip attach always requires root on Linux. Use sudo -n directly.
-        // The Setup step writes /etc/sudoers.d/usbip-attach granting passwordless sudo for usbip.
-        var attachCommand = $"sudo -n usbip attach --remote 127.0.0.1 --busid {normalizedBusId}";
-        var result = await RunSshCommandAsync(sshTarget, attachCommand, ct);
+        // usbip attach always requires root on Linux, so every privileged step uses sudo -n.
+        // Setup writes /etc/sudoers.d/usbip-attach granting passwordless sudo for
+        // usbip, `modprobe vhci_hcd`, and `udevadm settle`.
+        var attachScript = RemoteUsbIpCommands.BuildAttachScript(
+            busId,
+            remoteUsbIpHost,
+            remoteUsbIpPort);
 
-        if (result.Ok)
-            return result;
+        var (exitCode, message) = await RunSshCommandAsync(sshTarget, attachScript, ct);
 
-        var needsPassword = result.Message.Contains("password is required", StringComparison.OrdinalIgnoreCase)
-            || result.Message.Contains("a terminal is required", StringComparison.OrdinalIgnoreCase)
-            || result.Message.Contains("no tty present", StringComparison.OrdinalIgnoreCase)
-            || result.Message.Contains("no password was provided", StringComparison.OrdinalIgnoreCase);
+        if (exitCode == 0)
+            return (true, string.Empty);
 
-        return needsPassword
-            ? (false,
-                $"SSH client '{sshTarget}' requires passwordless sudo for usbip. "
-                + "Run Setup for this client in Settings to configure it.")
-            : result;
+        return (false, RemoteUsbIpCommands.DescribeFailure(exitCode, message, sshTarget));
+    }
+
+    /// <summary>
+    /// Releases the device on an SSH client's vhci. Without this the client keeps a dead
+    /// import after a local detach, which occupies its vhci port and makes the next attach
+    /// of the same bus id fail.
+    /// </summary>
+    /// <remarks>Idempotent: a device that is not imported is reported as success.</remarks>
+    public async Task<(bool Ok, string Message)> DetachViaSshClientAsync(
+        string sshTarget,
+        string busId,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sshTarget))
+            return (false, "SSH target name is required.");
+
+        if (!RemoteUsbIpCommands.IsValidBusId(busId))
+            return (false, $"Bus ID '{busId}' is not a valid USB bus id.");
+
+        var detachScript = RemoteUsbIpCommands.BuildDetachScript(busId);
+
+        var (exitCode, message) = await RunSshCommandAsync(
+            sshTarget, detachScript, ct, timeout: SshDetachTimeout, operation: "detach");
+
+        if (exitCode == 0)
+            return (true, string.Empty);
+
+        return (false, RemoteUsbIpCommands.DescribeFailure(exitCode, message, sshTarget, "detach"));
     }
 
     private static AttachTargetType NormalizeAttachTargetType(AttachTargetType type)
@@ -317,12 +349,20 @@ public sealed class UsbIpdClient
         }
     }
 
-    private async Task<(bool Ok, string Message)> RunSshCommandAsync(
+    /// <summary>
+    /// Runs a command on an SSH target. Returns the remote exit code so callers can
+    /// distinguish the script's documented failure codes; -1 means the run timed out.
+    /// </summary>
+    private async Task<(int ExitCode, string Message)> RunSshCommandAsync(
         string sshTarget,
         string remoteCommand,
         CancellationToken ct,
-        string? reverseTunnelSpec = null)
+        string? reverseTunnelSpec = null,
+        TimeSpan? timeout = null,
+        string operation = "attach")
     {
+        var effectiveTimeout = timeout ?? SshAttachTimeout;
+
         var psi = new ProcessStartInfo
         {
             FileName = "ssh",
@@ -334,6 +374,14 @@ public sealed class UsbIpdClient
 
         psi.ArgumentList.Add("-o");
         psi.ArgumentList.Add("BatchMode=yes");
+        // A host whose ssh config sets RemoteCommand cannot also take a command line:
+        // OpenSSH fails with "Cannot execute command-line and remote command." Overriding
+        // both here keeps interactive aliases (RemoteCommand tmux, RequestTTY yes) usable
+        // as attach targets, and keeps stdout parseable by not allocating a pty.
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("RemoteCommand=none");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("RequestTTY=no");
         if (!string.IsNullOrWhiteSpace(reverseTunnelSpec))
         {
             psi.ArgumentList.Add("-o");
@@ -345,7 +393,7 @@ public sealed class UsbIpdClient
         psi.ArgumentList.Add(remoteCommand);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(SshAttachTimeout);
+        cts.CancelAfter(effectiveTimeout);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -359,9 +407,7 @@ public sealed class UsbIpdClient
             var stdout = (await stdoutTask)?.Trim() ?? string.Empty;
             var stderr = (await stderrTask)?.Trim() ?? string.Empty;
             var message = $"{stderr}\n{stdout}".Trim();
-            return process.ExitCode == 0
-                ? (true, string.Empty)
-                : (false, string.IsNullOrWhiteSpace(message) ? "SSH client attach failed." : message);
+            return (process.ExitCode, message);
         }
         catch (OperationCanceledException)
         {
@@ -375,7 +421,7 @@ public sealed class UsbIpdClient
                 // Best effort kill.
             }
 
-            return (false, $"SSH client attach timed out after {(int)SshAttachTimeout.TotalSeconds} seconds.");
+            return (-1, $"SSH client {operation} timed out after {(int)effectiveTimeout.TotalSeconds} seconds.");
         }
     }
 
